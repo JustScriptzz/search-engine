@@ -3,38 +3,34 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Google</title>
+<title>MiniSearch</title>
 <link rel="stylesheet" href="/style.css" />
 </head>
-<body class="home">
-<nav class="topnav">
-  <a href="/results.html?q=gmail">Gmail</a>
-  <a href="/results.html?q=images">Images</a>
-  <span class="avatar" title="Account">M</span>
-</nav>
-<main class="stage">
-  <div class="logo" aria-label="Google">
-    <span class="b">G</span><span class="r">o</span><span class="y">o</span><span class="b">g</span><span class="g">l</span><span class="r">e</span>
-  </div>
-  <form id="home-form" role="search" autocomplete="off">
-    <div class="bar">
-      <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path fill="#9aa0a6" d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
-      <input id="home-q" type="search" aria-label="Search" />
-      <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path fill="#9aa0a6" d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm6-3a6 6 0 0 1-12 0H4a8 8 0 0 0 7 7.94V22h2v-2.06A8 8 0 0 0 20 12h-2z"/></svg>
-    </div>
-    <div class="btns">
-      <button type="submit">Google Search</button>
-      <button type="button" id="lucky">I&rsquo;m Feeling Lucky</button>
+<body>
+<div class="glow" aria-hidden="true"></div>
+<main class="wrap">
+  <header class="top">
+    <a class="brand" href="/">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="14" cy="14" r="9" fill="none" stroke="#c8f04a" stroke-width="3"/><path d="M21 21l7 7" stroke="#c8f04a" stroke-width="3" stroke-linecap="round"/></svg>
+      <span>minisearch</span>
+    </a>
+    <div class="pills"><span id="stats" class="pill">connecting…</span><span id="country" class="pill accent" hidden></span></div>
+  </header>
+  <section class="hero" id="hero">
+    <h1>Search your <em>crawl</em>.</h1>
+    <p class="tag">BM25-ranked, zero tracking, tuned to your country.</p>
+  </section>
+  <form id="form" role="search" autocomplete="off">
+    <div class="field">
+      <svg class="fic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16.5 16.5L21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input id="q" type="search" placeholder="Try: search engine history…" spellcheck="false" aria-label="Search" />
+      <kbd title="Focus search">/</kbd>
     </div>
   </form>
+  <p id="meta" aria-live="polite"></p>
+  <div id="results"></div>
+  <footer>minisearch · local-first · <span id="foot-stats"></span></footer>
 </main>
-<footer class="foot">
-  <div class="row"><span>United States</span></div>
-  <div class="row links">
-    <span><a href="#">About</a><a href="#">Advertising</a><a href="#">Business</a><a href="#">How Search works</a></span>
-    <span><a href="#">Privacy</a><a href="#">Terms</a><a href="#">Settings</a></span>
-  </div>
-</footer>
 <script src="/app.js"></script>
 </body>
 </html>
