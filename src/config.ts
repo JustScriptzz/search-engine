@@ -1,23 +1,21 @@
-// Single source of truth for every hardcoded value in the engine.
-// Everything else imports from here — change a number here, not in 6 files.
+// Every hardcoded value lives here. Change it once, not in six files.
 
 export const CONFIG = {
   name: "MiniSearch",
-  version: "0.2.0",
+  version: "0.3.0",
 
   server: {
     port: 3000,
     host: "0.0.0.0",
     indexPath: "data/index.json",
     cors: true,
-    // SSE responses stay open while the model thinks: Bun's default 10s
-    // idleTimeout would cut them off. Unit is seconds (Bun caps it at 255).
+    // SSE stays open while the model thinks; Bun's default 10s idleTimeout
+    // would cut it off. Unit is seconds (Bun caps it at 255).
     idleTimeoutSeconds: 240,
     sseHeartbeatMs: 8_000,
   },
 
-  // English-language, non-Wikipedia sources. Kept deliberately small and
-  // high-signal: news, tech, docs, discussion.
+  // English-language, non-Wikipedia sources.
   seeds: [
     "https://example.com",
     "https://developer.mozilla.org/en-US/docs/Web",
@@ -37,7 +35,7 @@ export const CONFIG = {
     maxPages: 2000,
     concurrency: 3,
     politenessMs: 800,
-    timeoutMs: 12000,
+    timeoutMs: 12_000,
     maxBytes: 2_000_000,
     minTextChars: 100,
     maxTextChars: 20_000,
@@ -46,22 +44,12 @@ export const CONFIG = {
     sameHostOnly: false,
   },
 
-  userAgent: "MiniSearchBot/0.2 (+https://github.com/JustScriptzz/search-engine)",
-  acceptLanguage: "en-US,en;q=0.9", // keep crawled pages in English
+  userAgent: "MiniSearchBot/0.3 (+https://github.com/JustScriptzz/search-engine)",
+  acceptLanguage: "en-US,en;q=0.9",
 
   language: {
-    // Scripts we refuse to index. Latin-script languages (English, German,
-    // French, Spanish, Turkish, Vietnamese, ...) stay in.
-    blockedScripts: [
-      "arabic",
-      "hebrew",
-      "cyrillic",
-      "cjk",
-      "devanagari",
-      "thai",
-      "greek",
-    ] as string[],
-    // Reject a page if this share of its letters fall in blocked scripts.
+    // Scripts we refuse to index. Latin-script languages stay in.
+    blockedScripts: ["arabic", "hebrew", "cyrillic", "cjk", "devanagari", "thai", "greek"] as string[],
     maxBlockedRatio: 0.2,
   },
 
@@ -82,32 +70,31 @@ export const CONFIG = {
   },
 
   ai: {
-    // text.pollinations.ai speaks the OpenAI API at POST {baseUrl}/openai.
-    baseUrl: "https://text.pollinations.ai",
-    model: "openai",
+    // Cogito (Decart) — OpenAI-compatible. text.pollinations.ai's text API is
+    // deprecated, so the agent runs on Cogito's gpt-oss-120B weights.
+    provider: "cogito",
+    baseUrl: "https://api.cogito.decart.ai/v1",
+    tokenEnv: "COGITO_API_KEY",
+    model: "gpt-oss:ultra-fast",
+    // First slug from GET /v1/models that matches wins; gpt-oss-120b is served
+    // under different ids depending on the account tier.
+    modelPreference: ["gpt-oss:ultra-fast", "gpt-oss-120b", "gpt-oss"] as string[],
+    modelCacheTtlMs: 10 * 60 * 1000,
     temperature: 0.3,
-    maxTokens: 900,
-    reasoningEffort: "minimal", // only sent when a token is configured
-    timeoutMs: 90_000,
+    maxTokens: 1200,
+    timeoutMs: 60_000,
     maxSteps: 6,
     retries: 2,
-    retryBackoffMs: 4000,
-    // Anonymous tier: one request per 15s, and it 402s/500s on richer bodies,
-    // so we send the minimal {model, messages} payload and pace ourselves.
-    // Set POLLINATIONS_TOKEN to unlock the full parameter set and a 3s cadence.
-    minIntervalMsAnonymous: 16_000,
-    minIntervalMsToken: 3_000,
-    // Native OpenAI function calling. The anonymous free tier rejects it
-    // (500/402), so the agent uses the MINISEARCH_TOOL protocol instead.
-    // Auto-enabled when POLLINATIONS_TOKEN is set.
+    retryBackoffMs: 1500,
+    // Cogito's /chat/completions returns empty tool_calls for gpt-oss, so the
+    // agent drives tools with the MINISEARCH_TOOL protocol. Flip this on once
+    // the endpoint maps harmony tool calls properly.
     nativeTools: false,
-    tokenEnv: "POLLINATIONS_TOKEN",
+    minIntervalMs: 400,
     readPageChars: 4000,
   },
 
   ui: {
-    title: "MiniSearch",
-    tagline: "BM25-ranked, zero tracking, tuned to your country.",
     defaultLimit: 10,
     maxLimit: 25,
   },

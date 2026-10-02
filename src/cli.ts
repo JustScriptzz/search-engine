@@ -1,8 +1,12 @@
 import { crawl } from "./crawler/crawler.ts";
 import { CONFIG } from "./config.ts";
+import { loadEnvFile } from "./env.ts";
 import { runAgent } from "./ai.ts";
+import { hasApiKey } from "./provider.ts";
 import { InvertedIndex } from "./index/invertedIndex.ts";
 import { loadIndex, saveIndex, startServer } from "./server.ts";
+
+await loadEnvFile();
 
 function arg(name: string, fallback?: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -74,7 +78,7 @@ if (cmd === "crawl") {
   console.log(`${CONFIG.name} on http://localhost:${server.port}  (docs=${idx.docCount})`);
   console.log(`  GET  /api/search?q=hello`);
   console.log(`  GET  /api/stats`);
-  console.log(`  POST /api/chat  {"message":"..."}  (SSE, ${CONFIG.ai.model} @ ${CONFIG.ai.baseUrl})`);
+  console.log(`  POST /api/chat  {"message":"..."}  (SSE, ${CONFIG.ai.provider} / ${CONFIG.ai.model}${hasApiKey() ? "" : " — no API key"})`);
 } else {
   console.log(`${CONFIG.name} ${CONFIG.version}
 

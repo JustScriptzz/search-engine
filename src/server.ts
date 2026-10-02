@@ -1,6 +1,7 @@
 import { CONFIG } from "./config.ts";
 import { runAgent, type ChatTurn } from "./ai.ts";
 import { countryBoost, getClientIp, lookupCountry } from "./geo.ts";
+import { hasApiKey } from "./provider.ts";
 import { InvertedIndex } from "./index/invertedIndex.ts";
 
 export const INDEX_PATH = CONFIG.server.indexPath;
@@ -95,7 +96,19 @@ export function startServer(idx: InvertedIndex, port: number = CONFIG.server.por
       // ---- API: index stats ----
       if (url.pathname === "/api/stats") {
         return Response.json(
-          { ...idx.stats(), name: CONFIG.name, version: CONFIG.version, indexPath: INDEX_PATH },
+          {
+            ...idx.stats(),
+            name: CONFIG.name,
+            version: CONFIG.version,
+            indexPath: INDEX_PATH,
+            ai: {
+              provider: CONFIG.ai.provider,
+              model: CONFIG.ai.model,
+              baseUrl: CONFIG.ai.baseUrl,
+              configured: hasApiKey(),
+              nativeTools: CONFIG.ai.nativeTools,
+            },
+          },
           { headers: cors },
         );
       }

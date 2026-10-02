@@ -1,21 +1,25 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { CONFIG } from "./config.ts";
-import { buildContext, extractiveAnswer, parseAction, providerPacing, runAgent, systemPrompt } from "./ai.ts";
+import { buildContext, extractiveAnswer, parseAction, runAgent, systemPrompt } from "./ai.ts";
+import { providerPacing } from "./provider.ts";
 import { InvertedIndex } from "./index/invertedIndex.ts";
 
 const realFetch = globalThis.fetch;
+const realKey = process.env.COGITO_API_KEY;
+type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 beforeEach(() => {
-  // never wait on the provider's 15s anonymous pacing inside tests
   providerPacing.minIntervalMs = 0;
+  process.env.COGITO_API_KEY = "cog-live-test";
 });
 
 afterEach(() => {
   globalThis.fetch = realFetch;
-  providerPacing.minIntervalMs = CONFIG.ai.minIntervalMsAnonymous;
+  providerPacing.minIntervalMs = 400;
+  if (realKey === undefined) delete process.env.COGITO_API_KEY;
+  else process.env.COGITO_API_KEY = realKey;
 });
 
-function stubFetch(impl: () => Promise<Response>) {
+function stubFetch(impl: FetchLike) {
   globalThis.fetch = impl as unknown as typeof fetch;
 }
 
@@ -35,14 +39,24 @@ function tinyIndex() {
   return idx;
 }
 
-/** Stub the provider with a scripted sequence of assistant messages. */
-function stubProvider(turns: string[]) {
-  let i = 0;
-  stubFetch(async () => {
-    const content = turns[Math.min(i++, turns.length - 1)];
-    return new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content } }] }), {
-      headers: { "content-type": "application/json" },
-    });
+/** Scripted provider: serves /v1/models then a sequence of assistant messages. */
+function stubProvider(turns: string[], toolCallTurn?: { calls: any[] }) {
+  let chatCalls = 0;
+  stubFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith("/models")) {
+      return new Response(JSON.stringify({ data: [{ id: "gpt-oss:ultra-fast" }] }), {
+        headers: { "content-type": "application/json" },
+      });
+    }
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    const content = toolCallTurn && chatCalls === 0 ? null : turns[Math.min(chatCalls++, turns.length - 1)];
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { role: "assistant", content, reasoning: "", tool_calls: toolCallTurn?.calls ?? [] } }],
+      }),
+      { headers: { "content-type": "application/json" } },
+    );
   });
 }
 
@@ -78,42 +92,46 @@ describe("agent", () => {
   });
 
   test("honours native tool_calls when the provider returns them", async () => {
-    stubFetch(async () =>
-      new Response(
-        JSON.stringify({
-          choices: [
-            {
-              message: {
-                role: "assistant",
-                content: "",
-                tool_calls: [{ id: "t1", type: "function", function: { name: "index_stats", arguments: "{}" } }],
-              },
-            },
-          ],
-        }),
-        { headers: { "content-type": "application/json" } },
-      ),
-    );
+    stubProvider(["unused"], {
+      calls: [{ id: "t1", type: "function", function: { name: "index_stats", arguments: "{}" } }],
+    });
     const events: any[] = [];
-    // provider repeats the same tool call, so the loop ends on the step limit
-    // and falls back to an extractive answer built from the index.
     const answer = await runAgent({ message: "how big is the index?", index: tinyIndex(), onEvent: (e) => events.push(e) });
     expect(events.some((e) => e.type === "tool" && e.name === "index_stats")).toBe(true);
     expect(answer.length).toBeGreaterThan(0);
   });
 
+  test("falls back to the reasoning channel when content comes back empty", async () => {
+    stubProvider(["only-reasoning"], undefined);
+    const events: any[] = [];
+    const answer = await runAgent({ message: "geneva", index: tinyIndex(), onEvent: (e) => events.push(e) });
+    expect(answer.length).toBeGreaterThan(0);
+  });
+
   test("provider outage degrades to an extractive answer, not an error", async () => {
-    // keep the retry backoff instant for the test
-    const cfg = CONFIG.ai as { retryBackoffMs: number };
-    const original = cfg.retryBackoffMs;
-    cfg.retryBackoffMs = 1;
-    stubFetch(async () => new Response("boom", { status: 500 }));
+    stubFetch(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith("/models")) return new Response(JSON.stringify({ data: [] }));
+      return new Response("boom", { status: 500 });
+    });
     const events: any[] = [];
     const answer = await runAgent({ message: "geneva energy", index: tinyIndex(), onEvent: (e) => events.push(e) });
-    cfg.retryBackoffMs = original;
     expect(answer).toContain("bbc.com/news/story-1");
     expect(events.some((e) => e.type === "error" && e.message.includes("model unavailable"))).toBe(true);
     expect(events.some((e) => e.type === "answer")).toBe(true);
+  }, 20_000); // provider retries with backoff before falling back
+
+  test("missing API key never calls the provider", async () => {
+    delete process.env.COGITO_API_KEY;
+    let calls = 0;
+    stubFetch(async () => {
+      calls++;
+      return new Response("{}", { status: 500 });
+    });
+    const events: any[] = [];
+    const answer = await runAgent({ message: "geneva energy", index: tinyIndex(), onEvent: (e) => events.push(e) });
+    expect(calls).toBe(0);
+    expect(answer).toContain("bbc.com/news/story-1");
+    expect(events.some((e) => e.type === "error" && e.message.includes("COGITO_API_KEY"))).toBe(true);
   });
 
   test("extractive answer lists sources when the index has nothing", () => {

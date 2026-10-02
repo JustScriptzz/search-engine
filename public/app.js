@@ -69,6 +69,12 @@
       const t = `${s.docCount.toLocaleString()} docs · ${s.termCount.toLocaleString()} terms`;
       $("#stats").textContent = t;
       $("#foot-stats").textContent = `${s.name} ${s.version} · ${t}`;
+      const hint = $("#ai-hint");
+      if (hint && s.ai) {
+        hint.textContent = s.ai.configured
+          ? `${s.ai.provider} · ${s.ai.model} · tools: search_index, read_page, index_stats`
+          : `${s.ai.provider} · no API key — answers fall back to raw index results`;
+      }
     } catch {
       $("#stats").textContent = "index offline";
     }

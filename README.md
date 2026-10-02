@@ -1,6 +1,6 @@
 # MiniSearch — small web search engine with an AI agent
 
-Crawl the web → BM25 inverted index → keyword search UI **and** a tool-calling
+Crawl the web → BM25 inverted index → keyword search UI **and** a tool-using
 agent ("MiniSearch AI") that answers from the same index and cites what it read.
 
 Bun + TypeScript, **zero runtime dependencies**.
@@ -18,11 +18,12 @@ seeds → Frontier (dedup + per-host politeness)
 ## Quickstart
 
 ```bash
-bun test                                   # 28 tests
-bun src/cli.ts crawl --max 2000           # crawl (defaults come from src/config.ts)
+cp .env.example .env      # add COGITO_API_KEY
+bun test                   # 30 tests
+bun src/cli.ts crawl --max 2000
 bun src/cli.ts search --query "how to parse html"
-bun src/cli.ts ask "what is bm25 ranking?" # MiniSearch AI in the terminal
-bun src/cli.ts serve --port 3000           # UI at http://localhost:3000
+bun src/cli.ts ask "what is bm25 ranking?"   # agent in the terminal
+bun src/cli.ts serve --port 3000             # UI at http://localhost:3000
 ```
 
 No `--seeds` file needed: the default seed list lives in `src/config.ts`.
@@ -32,7 +33,7 @@ No `--seeds` file needed: the default seed list lives in `src/config.ts`.
 | Route | Purpose |
 | --- | --- |
 | `GET /api/search?q=…&limit=10&country=DE` | Ranked hits + timing + resolved country |
-| `GET /api/stats` | doc/term counts, version |
+| `GET /api/stats` | doc/term counts, version, AI provider status |
 | `POST /api/chat` | Agent. Body `{message, history?, country?}` → **SSE** events |
 | `GET /` | Web UI (search + AI chat) |
 
@@ -45,21 +46,25 @@ curl -N -X POST localhost:3000/api/chat -H 'content-type: application/json' \
 
 ## MiniSearch AI
 
-- Provider: **text.pollinations.ai**, OpenAI-compatible route `POST /openai`, model `openai`.
+- Provider: **Cogito (Decart)** — OpenAI-compatible `https://api.cogito.decart.ai/v1`,
+  model resolved from `GET /v1/models` to your account's GPT-OSS 120B slug
+  (e.g. `gpt-oss:ultra-fast`). text.pollinations.ai's text API is deprecated,
+  so nothing depends on it any more.
 - System prompt brands it *MiniSearch AI*, forces `search_index` before any claim,
   forbids invented URLs, and requires markdown citations from tool output.
 - Tools (full backend access): `search_index` (BM25 + country boost),
-  `read_page` (refetches an indexed URL, returns text), `index_stats`.
-- Tool calling: the anonymous free tier rejects native `tools` (500/402), so the
-  agent uses a `MINISEARCH_TOOL {"name":…,"args":…}` protocol and still honours
-  native `tool_calls` when the provider sends them (auto-enabled with a token).
-- Resilience: pacing (1 request / 15s anonymous), retry with backoff on
-  402/429/5xx, SSE heartbeat + 240s idle timeout, and a deterministic
-  **extractive fallback** so the UI always answers even if the model is down.
+  `read_page` (refetches an indexed URL; off-index URLs are rejected),
+  `index_stats`.
+- Tool protocol: Cogito's `/chat/completions` returns empty `tool_calls` for
+  gpt-oss (harmony channels aren't mapped), so the agent emits
+  `MINISEARCH_TOOL {"name":…,"args":…}` and we execute it ourselves. Native
+  `tool_calls` are still honoured if a provider ever sends them —
+  flip `ai.nativeTools` in `src/config.ts`.
+- Resilience: model-slug caching, 400ms pacing, retry with backoff on 5xx,
+  auth errors never retried, SSE heartbeat + 240s idle timeout, and a
+  deterministic **extractive fallback** so the UI always answers.
 
-```bash
-export POLLINATIONS_TOKEN=…   # optional: 3s cadence + richer params + native tools
-```
+Measured: tool call → cited answer in ~2s.
 
 ## Country tuning
 
@@ -69,18 +74,22 @@ country's home TLDs 1.35×. `?country=DE` overrides detection for testing.
 
 ## Configuration
 
-Everything hardcoded lives in `src/config.ts`: server/port/host, seeds, crawl
-limits (pages, concurrency, politeness, timeouts, byte caps), blocked scripts,
-BM25 `k1`/`b`/title repeat, stopwords, geo endpoint + boost, AI model/temperature/
-step limits/rate limits, UI limits.
+`src/config.ts` holds every hardcoded value: server/port/host/timeouts, seeds,
+crawl limits, blocked scripts, BM25 `k1`/`b`/title repeat, stopwords, geo
+endpoint + boost, AI provider/model/preference/retries, UI limits.
+Secrets live in `.env` (gitignored) — see `.env.example`.
 
 ## Deploying on Pterodactyl
 
-Panel variables (Startup tab):
+Startup tab:
 
-- `MAIN_FILE` = `pterodactyl.ts` — reads `SERVER_PORT`, no args needed
+- `MAIN_FILE` = `pterodactyl.ts` — reads `SERVER_PORT`, loads `.env`, no args needed
 - `BUILD_COMMAND` = `bash sync.sh` — first boot clones the repo, then crawls once
 - `AUTO_UPDATE` = `1` — boot `git pull`s new commits
+
+Upload a `.env` file containing `COGITO_API_KEY` in the Files tab (it is
+gitignored, so `git pull` never clobbers it). Without it the agent still answers,
+falling back to raw index results.
 
 Plain VPS instead:
 
@@ -93,8 +102,8 @@ bun build --compile ./src/cli.ts --outfile ./minisearch
 
 `bun test` covers tokenizer, BM25 ranking + title boost + dedup, parser/entity
 decoding, charset decoding, Frontier politeness/dedup, script detection, geo
-boosts, and the agent (tool protocol, native tool calls, provider-outage
-fallback, `read_page` sandboxing).
+boosts, and the agent (tool protocol, native tool calls, empty-content
+handling, missing-key path, provider outage fallback, `read_page` sandboxing).
 
 ## Limits
 
