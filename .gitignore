@@ -2,3 +2,5 @@ data/
 node_modules/
 *.log
 .DS_Store
+minisearch
+minisearch.exe
