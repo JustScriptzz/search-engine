@@ -15,6 +15,8 @@ export function startServer(idx: InvertedIndex, port = 3000) {
     port,
     async fetch(req) {
       const url = new URL(req.url);
+      const cors = { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, OPTIONS" };
+      if (req.method === "OPTIONS") return new Response(null, { headers: cors });
       if (url.pathname === "/") {
         return new Response(Bun.file("public/index.html"), { headers: { "content-type": "text/html" } });
       }
@@ -29,10 +31,10 @@ export function startServer(idx: InvertedIndex, port = 3000) {
         const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "10"), 50);
         const t0 = Date.now();
         const hits = idx.search(q, isNaN(limit) ? 10 : limit);
-        return Response.json({ query: q, count: hits.length, tookMs: Date.now() - t0, hits });
+        return Response.json({ query: q, count: hits.length, tookMs: Date.now() - t0, hits }, { headers: cors });
       }
       if (url.pathname === "/api/stats") {
-        return Response.json({ ...idx.stats(), indexPath: INDEX_PATH });
+        return Response.json({ ...idx.stats(), indexPath: INDEX_PATH }, { headers: cors });
       }
       return new Response("Not found", { status: 404 });
     },
