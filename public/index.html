@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MiniSearch — web search engine</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<main class="wrap">
+  <h1>MiniSearch</h1>
+  <p class="sub">BM25 web search over your crawl · <span id="stats">loading stats…</span></p>
+  <form id="form">
+    <input id="q" type="search" placeholder="Try: search engine history…" autocomplete="off" />
+    <button type="submit">Search</button>
+  </form>
+  <p id="meta"></p>
+  <div id="results"></div>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>
