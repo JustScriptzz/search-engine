@@ -11,6 +11,25 @@ export async function saveIndex(idx: InvertedIndex): Promise<void> {
   await idx.saveToFile(INDEX_PATH);
 }
 
+const STATIC_TYPES: Record<string, string> = {
+  ".html": "text/html",
+  ".js": "text/javascript",
+  ".css": "text/css",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".json": "application/json",
+};
+
+async function staticResponse(pathname: string): Promise<Response | null> {
+  const rel = pathname === "/" ? "/index.html" : pathname;
+  if (rel.includes("..") || rel.includes("\0")) return null;
+  const dot = rel.lastIndexOf(".");
+  const type = dot === -1 ? null : STATIC_TYPES[rel.slice(dot).toLowerCase()];
+  if (!type) return null;
+  const f = Bun.file("public" + rel);
+  if (!(await f.exists())) return null;
+  return new Response(f, { headers: { "content-type": type } });
+}
 export function startServer(idx: InvertedIndex, port = 3000) {
   return Bun.serve({
     port,
@@ -19,15 +38,6 @@ export function startServer(idx: InvertedIndex, port = 3000) {
       const url = new URL(req.url);
       const cors = { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, OPTIONS" };
       if (req.method === "OPTIONS") return new Response(null, { headers: cors });
-      if (url.pathname === "/") {
-        return new Response(Bun.file("public/index.html"), { headers: { "content-type": "text/html" } });
-      }
-      if (url.pathname === "/app.js") {
-        return new Response(Bun.file("public/app.js"), { headers: { "content-type": "text/javascript" } });
-      }
-      if (url.pathname === "/style.css") {
-        return new Response(Bun.file("public/style.css"), { headers: { "content-type": "text/css" } });
-      }
       if (url.pathname === "/api/search") {
         const q = url.searchParams.get("q") ?? "";
         const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "10"), 50);
@@ -51,6 +61,8 @@ export function startServer(idx: InvertedIndex, port = 3000) {
       if (url.pathname === "/api/stats") {
         return Response.json({ ...idx.stats(), indexPath: INDEX_PATH }, { headers: cors });
       }
+      const page = await staticResponse(url.pathname);
+      if (page) return page;
       return new Response("Not found", { status: 404 });
     },
   });

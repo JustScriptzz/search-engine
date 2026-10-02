@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Google Search</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body class="results">
+<header class="rhead">
+  <div class="rhead-top">
+    <a class="mini-logo" href="/" aria-label="Google home">
+      <span class="b">G</span><span class="r">o</span><span class="y">o</span><span class="b">g</span><span class="g">l</span><span class="r">e</span>
+    </a>
+    <form id="r-form" role="search" autocomplete="off">
+      <div class="bar small">
+        <input id="r-q" type="search" aria-label="Search" />
+        <button class="iconbtn" type="submit" aria-label="Search">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path fill="#9aa0a6" d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
+        </button>
+      </div>
+    </form>
+    <span class="avatar" title="Account">M</span>
+  </div>
+  <nav class="tabs"><span class="on">All</span><span>Images</span><span>News</span><span>Videos</span></nav>
+</header>
+<main class="rwrap">
+  <p id="r-meta"></p>
+  <div id="r-results"></div>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>
