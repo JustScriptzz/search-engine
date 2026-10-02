@@ -13,6 +13,7 @@ export async function saveIndex(idx: InvertedIndex): Promise<void> {
 export function startServer(idx: InvertedIndex, port = 3000) {
   return Bun.serve({
     port,
+    hostname: "0.0.0.0",
     async fetch(req) {
       const url = new URL(req.url);
       const cors = { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, OPTIONS" };
