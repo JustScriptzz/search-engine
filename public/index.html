@@ -3,34 +3,59 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="dark light" />
 <title>MiniSearch</title>
 <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-<div class="glow" aria-hidden="true"></div>
-<main class="wrap">
-  <header class="top">
-    <a class="brand" href="/">
-      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="14" cy="14" r="9" fill="none" stroke="#c8f04a" stroke-width="3"/><path d="M21 21l7 7" stroke="#c8f04a" stroke-width="3" stroke-linecap="round"/></svg>
-      <span>minisearch</span>
-    </a>
-    <div class="pills"><span id="stats" class="pill">connecting…</span><span id="country" class="pill accent" hidden></span></div>
-  </header>
-  <section class="hero" id="hero">
-    <h1>Search your <em>crawl</em>.</h1>
-    <p class="tag">BM25-ranked, zero tracking, tuned to your country.</p>
+<div class="bg" aria-hidden="true"></div>
+
+<header class="top">
+  <a class="brand" href="/">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="14" cy="14" r="9" fill="none" stroke="currentColor" stroke-width="3"/><path d="M21 21l7 7" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+    <span>Mini<b>Search</b></span>
+  </a>
+  <div class="chips">
+    <span class="chip" id="stats">connecting…</span>
+    <span class="chip geo" id="country" hidden></span>
+  </div>
+</header>
+
+<main class="shell">
+  <section class="intro" id="intro">
+    <h1>Find it in <em>the crawl</em>.</h1>
+    <p>BM25-ranked results over pages this engine fetched itself. Or ask <span class="ai-name">MiniSearch AI</span>, which searches the same index and cites what it read.</p>
   </section>
-  <form id="form" role="search" autocomplete="off">
-    <div class="field">
-      <svg class="fic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16.5 16.5L21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-      <input id="q" type="search" placeholder="Try: search engine history…" spellcheck="false" aria-label="Search" />
-      <kbd title="Focus search">/</kbd>
-    </div>
-  </form>
-  <p id="meta" aria-live="polite"></p>
-  <div id="results"></div>
-  <footer>minisearch · local-first · <span id="foot-stats"></span></footer>
+
+  <div class="searchbar">
+    <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16.5 16.5L21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <input id="q" type="search" placeholder="Search the index…" aria-label="Search query" spellcheck="false" />
+    <kbd>/</kbd>
+  </div>
+
+  <nav class="modes" role="tablist">
+    <button class="mode on" data-mode="search" role="tab" aria-selected="true">Search</button>
+    <button class="mode" data-mode="ai" role="tab" aria-selected="false">Ask MiniSearch AI</button>
+  </nav>
+
+  <section id="search-view">
+    <p id="meta" class="meta" aria-live="polite"></p>
+    <div id="results"></div>
+  </section>
+
+  <section id="ai-view" hidden>
+    <div id="thread" class="thread"></div>
+    <form id="ask" class="ask">
+      <textarea id="ask-q" rows="1" placeholder="Ask a question — the agent searches the index and cites sources…" aria-label="Ask MiniSearch AI"></textarea>
+      <button type="submit" class="send" aria-label="Send">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20l18-8L3 4l4 8-4 8z" fill="currentColor"/></svg>
+      </button>
+    </form>
+    <script>window.CONFIG_NAME = "MiniSearch AI";</script>
+  </section>
 </main>
+
+<footer class="foot"><span id="foot-stats"></span> · local-first, no cookies</footer>
 <script src="/app.js"></script>
 </body>
 </html>

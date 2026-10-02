@@ -1,134 +1,301 @@
-/* MiniSearch single-page frontend: ?q= URLs, skeleton, real API + mock fallback. */
+/* MiniSearch UI: keyword search + MiniSearch AI chat (SSE tool-calling agent). */
+(() => {
+  const $ = (sel) => document.querySelector(sel);
 
-const MOCK = [
-  {
-    url: "https://example.com/search-guide",
-    title: "Example Search Guide - Learn How Search Works",
-    snippet:
-      "Search engines crawl the web, build an inverted index of every word, and rank matching documents with algorithms like BM25. This guide walks through crawling, indexing, and ranking step by step.",
-    wordCount: 1200,
-  },
-  {
-    url: "https://developer.mozilla.org/en-US/docs/Web",
-    title: "MDN Web Docs - Search Result Example",
-    snippet:
-      "MDN Web Docs is the reference for open web standards: HTML, CSS, and JavaScript. Each page is indexed by its headings, code samples, and browser compatibility tables for fast lookup.",
-    wordCount: 3400,
-  },
-  {
-    url: "https://www.bbc.com/news/world",
-    title: "BBC News - World Service Example Story",
-    snippet:
-      "Breaking news, analysis, and features from correspondents around the world. Coverage spans politics, science, culture, and technology with live reporting updated around the clock.",
-    wordCount: 800,
-  },
-];
+  const state = {
+    mode: "search",
+    history: [],
+    countryCode: "XX",
+    country: "",
+    busy: false,
+  };
 
-const form = document.getElementById("form");
-const q = document.getElementById("q");
-const box = document.getElementById("results");
-const meta = document.getElementById("meta");
-const stats = document.getElementById("stats");
-const footStats = document.getElementById("foot-stats");
-const country = document.getElementById("country");
-const hero = document.getElementById("hero");
+  // ---------------------------------------------------------------- helpers
+  const esc = (s) =>
+    String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-fetch("/api/stats").then((r) => r.json()).then((s) => {
-  const t = `${s.docCount} docs · ${s.termCount} terms`;
-  stats.textContent = t;
-  footStats.textContent = t;
-}).catch(() => { stats.textContent = "index offline"; });
+  const domainOf = (url) => {
+    try {
+      return new URL(url).hostname.replace(/^www\./, "");
+    } catch {
+      return url;
+    }
+  };
 
-function esc(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-
-function domainOf(url) {
-  try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
-}
-
-function highlight(text, query) {
-  const terms = [...new Set(query.toLowerCase().split(/[^a-z0-9à-ÿ]+/i).filter((t) => t.length > 1))];
-  let out = esc(text);
-  for (const t of terms) {
-    out = out.replace(new RegExp(`(${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi"), "<mark>$1</mark>");
+  function mark(text, query) {
+    const terms = [...new Set(String(query).toLowerCase().split(/[^a-z0-9à-ÿ]+/i).filter((t) => t.length > 1))];
+    let out = esc(text);
+    for (const t of terms) {
+      out = out.replace(new RegExp(`(${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi"), "<mark>$1</mark>");
+    }
+    return out;
   }
-  return out;
-}
 
-function row(h, i, query) {
-  const el = document.createElement("article");
-  el.className = "row";
-  el.innerHTML = `<div class="num"></div><div><a class="title" target="_blank" rel="noopener"></a><br><span class="domain"></span><p class="snippet"></p><div class="foot"></div></div>`;
-  el.querySelector(".num").textContent = String(i + 1).padStart(2, "0");
-  const a = el.querySelector(".title");
-  a.href = h.url;
-  a.textContent = h.title;
-  el.querySelector(".domain").textContent = domainOf(h.url);
-  el.querySelector(".snippet").innerHTML = highlight(h.snippet, query);
-  el.querySelector(".foot").textContent = `score ${h.score ?? "—"} · ${(h.wordCount ?? 0).toLocaleString()} words`;
-  return el;
-}
+  /** Tiny safe markdown -> HTML for agent answers (links, code, lists, bold). */
+  function md(src) {
+    const blocks = [];
+    let html = esc(src)
+      .replace(/```([\s\S]*?)```/g, (_, code) => {
+        blocks.push(`<pre><code>${code.trim()}</code></pre>`);
+        return `\u0000B${blocks.length - 1}\u0000`;
+      })
+      .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
 
-function skeleton() {
-  box.innerHTML = "";
-  for (let i = 0; i < 3; i++) {
-    const s = document.createElement("div");
-    s.className = "skelrow";
-    s.innerHTML = `<div class="a"></div><div class="b"></div><div class="c"></div>`;
-    box.appendChild(s);
+    html = html
+      .split(/\n{2,}/)
+      .map((block) => {
+        const lines = block.split("\n");
+        if (lines.every((l) => /^\s*[-*]\s+/.test(l)))
+          return `<ul>${lines.map((l) => `<li>${mdInline(l.replace(/^\s*[-*]\s+/, ""))}</li>`).join("")}</ul>`;
+        if (lines.every((l) => /^\s*\d+\.\s+/.test(l)))
+          return `<ol>${lines.map((l) => `<li>${mdInline(l.replace(/^\s*\d+\.\s+/, ""))}</li>`).join("")}</ol>`;
+        if (/^\u0000B\d+\u0000$/.test(block.trim())) return block.trim();
+        return `<p>${lines.map(mdInline).join("<br>")}</p>`;
+      })
+      .join("");
+
+    return html.replace(/\u0000B(\d+)\u0000/g, (_, i) => blocks[Number(i)]);
   }
-}
 
-async function run(query, push = true) {
-  hero.classList.toggle("compact", true);
-  if (push) history.replaceState(null, "", query ? `/?q=${encodeURIComponent(query)}` : "/");
-  if (!query) {
-    hero.classList.toggle("compact", false);
-    meta.textContent = "";
-    box.innerHTML = "";
-    country.hidden = true;
-    return;
+  function mdInline(s) {
+    return s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
   }
-  meta.textContent = "Searching…";
-  country.hidden = true;
-  skeleton();
-  let hits, label, cc = "XX", cname = "";
-  try {
-    if (new URLSearchParams(location.search).get("mock") === "1") throw 0;
-    const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&limit=10`);
-    if (!res.ok) throw 0;
-    const data = await res.json();
-    hits = data.hits;
-    cc = data.countryCode || "XX";
-    cname = data.country || "";
-    label = `${data.count} result${data.count === 1 ? "" : "s"} in ${data.tookMs}ms`;
-  } catch {
-    hits = MOCK;
-    label = `${MOCK.length} results (mock data — API unreachable)`;
-  }
-  if (cc !== "XX") {
-    country.textContent = `tuned for ${cname}`;
-    country.hidden = false;
-  }
-  meta.textContent = label;
-  box.innerHTML = "";
-  if (hits.length === 0) {
-    box.innerHTML = `<div class="empty">Nothing for “${esc(query)}”. Try fewer or different words.</div>`;
-    return;
-  }
-  hits.forEach((h, i) => box.appendChild(row(h, i, query)));
-}
 
-form.addEventListener("submit", (e) => {
-  e.preventDefault();
-  run(q.value.trim());
-});
+  // ---------------------------------------------------------------- stats
+  async function loadStats() {
+    try {
+      const s = await (await fetch("/api/stats")).json();
+      const t = `${s.docCount.toLocaleString()} docs · ${s.termCount.toLocaleString()} terms`;
+      $("#stats").textContent = t;
+      $("#foot-stats").textContent = `${s.name} ${s.version} · ${t}`;
+    } catch {
+      $("#stats").textContent = "index offline";
+    }
+  }
 
-document.addEventListener("keydown", (e) => {
-  if (e.key === "/" && document.activeElement !== q) { e.preventDefault(); q.focus(); }
-});
+  // ---------------------------------------------------------------- search
+  const results = $("#results");
+  const meta = $("#meta");
 
-const initial = new URLSearchParams(location.search).get("q") || "";
-q.value = initial;
-run(initial, false);
+  function skeletons(n = 3) {
+    results.innerHTML = "";
+    for (let i = 0; i < n; i++) {
+      const d = document.createElement("div");
+      d.className = "skel";
+      d.innerHTML = `<div class="s1"></div><div class="s2"></div><div class="s3"></div>`;
+      results.appendChild(d);
+    }
+  }
+
+  function resultCard(h, i, query) {
+    const el = document.createElement("article");
+    el.className = "card";
+    el.innerHTML = `<div class="rank"></div><div><h2><a target="_blank" rel="noopener"></a></h2><div class="srcurl"></div><p></p><div class="score"></div></div>`;
+    el.querySelector(".rank").textContent = String(i + 1).padStart(2, "0");
+    const a = el.querySelector("h2 a");
+    a.href = h.url;
+    a.textContent = h.title;
+    el.querySelector(".srcurl").textContent = domainOf(h.url);
+    el.querySelector("p").innerHTML = mark(h.snippet, query);
+    el.querySelector(".score").textContent = `score ${h.score ?? "—"} · ${(h.wordCount ?? 0).toLocaleString()} words`;
+    return el;
+  }
+
+  async function runSearch(query) {
+    if (!query) return;
+    $("#intro").classList.add("hidden");
+    meta.textContent = "Searching the index…";
+    skeletons();
+    try {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&limit=10`);
+      const data = await res.json();
+      state.countryCode = data.countryCode || "XX";
+      state.country = data.country || "";
+      const chip = $("#country");
+      if (state.countryCode !== "XX") {
+        chip.textContent = `tuned for ${state.country}`;
+        chip.hidden = false;
+      } else chip.hidden = true;
+
+      meta.textContent = `${data.count} result${data.count === 1 ? "" : "s"} · ${data.tookMs}ms`;
+      results.innerHTML = "";
+      if (!data.hits.length) {
+        results.innerHTML = `<div class="empty">Nothing indexed for “${esc(query)}”.<br />Try fewer words, or ask <code>MiniSearch AI</code>.</div>`;
+        return;
+      }
+      data.hits.forEach((h, i) => results.appendChild(resultCard(h, i, query)));
+    } catch {
+      meta.textContent = "Search failed — is the server up?";
+      results.innerHTML = "";
+    }
+  }
+
+  // ---------------------------------------------------------------- AI chat
+  const thread = $("#thread");
+  const askForm = $("#ask");
+  const askInput = $("#ask-q");
+
+  function bubble(kind, who) {
+    const el = document.createElement("div");
+    el.className = `msg ${kind}`;
+    el.innerHTML = `<div class="who"></div><div class="body"></div>`;
+    el.querySelector(".who").textContent = who;
+    return el;
+  }
+
+  const TOOL_LABELS = {
+    search_index: (a) => `search_index “${a.query ?? ""}”`,
+    read_page: (a) => `read_page ${domainOf(String(a.url ?? ""))}`,
+    index_stats: () => "index_stats",
+  };
+
+  async function ask(question) {
+    if (state.busy || !question) return;
+    state.busy = true;
+    askForm.querySelector("button").disabled = true;
+
+    const userMsg = bubble("user", "you");
+    userMsg.querySelector(".body").textContent = question;
+    thread.appendChild(userMsg);
+
+    const botMsg = bubble("bot", window.CONFIG_NAME || "MiniSearch AI");
+    const body = botMsg.querySelector(".body");
+    body.innerHTML = `<div class="tools"></div><span class="thinking"><i></i><i></i><i></i></span>`;
+    const tools = botMsg.querySelector(".tools");
+    thread.appendChild(botMsg);
+    botMsg.scrollIntoView({ block: "nearest", behavior: "smooth" });
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: question, history: state.history, country: state.countryCode }),
+      });
+      if (!res.ok || !res.body) throw new Error(`chat HTTP ${res.status}`);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let answer = "";
+      let toolCount = 0;
+
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const frames = buffer.split("\n\n");
+        buffer = frames.pop() ?? "";
+        for (const frame of frames) {
+          const line = frame.trim();
+          if (!line.startsWith("data:")) continue;
+          let ev;
+          try {
+            ev = JSON.parse(line.slice(5).trim());
+          } catch {
+            continue;
+          }
+          if (ev.type === "tool") {
+            toolCount++;
+            const label = (TOOL_LABELS[ev.name] ?? ((a) => ev.name))(ev.args ?? {});
+            const chip = document.createElement("span");
+            chip.className = "tool";
+            chip.textContent = `→ ${label}`;
+            tools.appendChild(chip);
+            body.querySelector(".thinking")?.remove();
+          } else if (ev.type === "status") {
+            let t = body.querySelector(".thinking");
+            if (!t) {
+              t = document.createElement("span");
+              t.className = "thinking";
+              t.innerHTML = "<i></i><i></i><i></i>";
+              body.appendChild(t);
+            }
+          } else if (ev.type === "answer") {
+            answer = ev.text;
+          } else if (ev.type === "error") {
+            const p = document.createElement("p");
+            p.className = "err";
+            p.textContent = `Agent error: ${ev.message}`;
+            body.appendChild(p);
+          }
+        }
+      }
+      body.querySelector(".thinking")?.remove();
+      if (answer) body.insertAdjacentHTML("beforeend", md(answer));
+      if (!answer && !body.querySelector(".err")) body.textContent = "No answer returned.";
+      state.history.push({ role: "user", content: question }, { role: "assistant", content: answer });
+      state.history = state.history.slice(-8);
+    } catch (err) {
+      body.innerHTML = `<p class="err">Chat failed: ${esc(err.message)}</p>`;
+    } finally {
+      state.busy = false;
+      askForm.querySelector("button").disabled = false;
+      botMsg.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }
+
+  // ---------------------------------------------------------------- wiring
+  function setMode(mode) {
+    state.mode = mode;
+    document.querySelectorAll(".mode").forEach((b) => {
+      const on = b.dataset.mode === mode;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-selected", String(on));
+    });
+    $("#search-view").hidden = mode !== "search";
+    $("#ai-view").hidden = mode !== "ai";
+    $("#intro").classList.toggle("hidden", mode === "ai" || Boolean($("#q").value));
+    if (mode === "ai") askInput.focus();
+  }
+
+  document.querySelectorAll(".mode").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+
+  $("#q").addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    const query = $("#q").value.trim();
+    if (!query) return;
+    history.replaceState(null, "", `/?q=${encodeURIComponent(query)}`);
+    setMode("search");
+    runSearch(query);
+  });
+
+  askForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const q = askInput.value.trim();
+    if (!q) return;
+    askInput.value = "";
+    askInput.style.height = "auto";
+    ask(q);
+  });
+
+  askInput.addEventListener("input", () => {
+    askInput.style.height = "auto";
+    askInput.style.height = Math.min(askInput.scrollHeight, 160) + "px";
+  });
+
+  askInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      askForm.requestSubmit();
+    }
+  });
+
+  document.addEventListener("keydown", (e) => {
+    const typing = /^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName ?? "");
+    if (e.key === "/" && !typing) {
+      e.preventDefault();
+      $("#q").focus();
+    }
+    if (e.key === "Escape") document.activeElement?.blur();
+  });
+
+  // ---------------------------------------------------------------- boot
+  loadStats();
+  const initial = new URLSearchParams(location.search).get("q") || "";
+  if (initial) {
+    $("#q").value = initial;
+    $("#intro").classList.add("hidden");
+    runSearch(initial);
+  }
+})();

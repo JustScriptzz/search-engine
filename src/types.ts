@@ -3,9 +3,10 @@ export interface CrawledDoc {
   url: string;
   title: string;
   text: string;
+  lang: string; // <html lang> when present, else ""
   outlinks: string[];
   fetchedAt: string; // ISO
-  contentHash: string; // simhash-ish (sha256 of normalized text)
+  contentHash: string; // sha256 of normalized text (near-duplicate guard)
   wordCount: number;
 }
 

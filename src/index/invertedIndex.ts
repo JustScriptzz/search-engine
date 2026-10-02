@@ -1,16 +1,14 @@
 import { tokenize } from "./tokenizer.ts";
+import { CONFIG } from "../config.ts";
 import type { CrawledDoc, IndexStats, SearchHit } from "../types.ts";
 
 interface Posting {
   tf: number;
-  positions?: number[];
 }
 
-// term -> docId -> posting
 type InvertedList = Map<string, Map<string, Posting>>;
 
-const K1 = 1.2;
-const B = 0.75;
+const { k1: K1, b: B, titleRepeat: TITLE_REPEAT } = CONFIG.bm25;
 
 export class InvertedIndex {
   docs = new Map<string, CrawledDoc>();
@@ -28,11 +26,11 @@ export class InvertedIndex {
 
   addDocument(doc: CrawledDoc): boolean {
     if (this.docs.has(doc.id)) return false;
-    // content dedup: skip identical contentHash from another URL
     for (const existing of this.docs.values()) {
       if (existing.contentHash === doc.contentHash) return false;
     }
-    const tokens = tokenize(`${doc.title} ${doc.title} ${doc.text}`);
+    // Repeat the title so matches in the title weigh more than body mentions.
+    const tokens = tokenize(`${doc.title} `.repeat(TITLE_REPEAT) + doc.text);
     const len = tokens.length;
     if (len === 0) return false;
 
@@ -74,8 +72,7 @@ export class InvertedIndex {
         const dl = this.docLens.get(docId) ?? avgLen;
         const tf = posting.tf;
         const denom = tf + K1 * (1 - B + (B * dl) / avgLen);
-        const s = idf * ((tf * (K1 + 1)) / denom);
-        scores.set(docId, (scores.get(docId) ?? 0) + s);
+        scores.set(docId, (scores.get(docId) ?? 0) + idf * ((tf * (K1 + 1)) / denom));
       }
     }
 

@@ -1,28 +1,56 @@
 import { describe, expect, test } from "bun:test";
 import { tokenize } from "./tokenizer.ts";
 import { InvertedIndex } from "./invertedIndex.ts";
+import type { CrawledDoc } from "../types.ts";
+
+function doc(partial: Partial<CrawledDoc> & { id: string; contentHash: string }): CrawledDoc {
+  return {
+    url: `https://a.test/${partial.id}`,
+    title: "",
+    text: "",
+    lang: "en",
+    outlinks: [],
+    fetchedAt: new Date().toISOString(),
+    wordCount: 0,
+    ...partial,
+  };
+}
 
 describe("tokenizer", () => {
   test("lowercases and removes stopwords", () => {
     expect(tokenize("The Quick, brown FOX!")).toContain("quick");
     expect(tokenize("the and of")).toEqual([]);
   });
+
+  test("drops web boilerplate tokens", () => {
+    const t = tokenize("https www example com page");
+    expect(t).not.toContain("https");
+    expect(t).not.toContain("com");
+    expect(t).toContain("example");
+  });
 });
 
 describe("index + BM25", () => {
   test("ranks relevant doc first", () => {
     const idx = new InvertedIndex();
-    idx.addDocument({ id: "1", url: "https://a.test/1", title: "Cats", text: "cats cats cats dogs", outlinks: [], fetchedAt: new Date().toISOString(), contentHash: "h1", wordCount: 4 });
-    idx.addDocument({ id: "2", url: "https://a.test/2", title: "Dogs", text: "dogs dogs birds", outlinks: [], fetchedAt: new Date().toISOString(), contentHash: "h2", wordCount: 3 });
+    idx.addDocument(doc({ id: "1", contentHash: "h1", title: "Cats", text: "cats cats cats dogs", wordCount: 4 }));
+    idx.addDocument(doc({ id: "2", contentHash: "h2", title: "Dogs", text: "dogs dogs birds", wordCount: 3 }));
     const hits = idx.search("cats", 10);
+    expect(hits).toHaveLength(1);
     expect(hits[0].id).toBe("1");
-    expect(hits.length).toBe(1);
+  });
+
+  test("title matches outrank body matches", () => {
+    const idx = new InvertedIndex();
+    idx.addDocument(doc({ id: "title", contentHash: "a", title: "Rust ownership", text: "one two three four five six" }));
+    idx.addDocument(doc({ id: "body", contentHash: "b", title: "Unrelated", text: "rust ownership one two three four five" }));
+    expect(idx.search("ownership", 10)[0].id).toBe("title");
   });
 
   test("dedups identical content", () => {
     const idx = new InvertedIndex();
-    const base = { url: "https://a.test/", title: "Hi", text: "unique content words here hello world", outlinks: [], fetchedAt: new Date().toISOString(), wordCount: 5 };
-    expect(idx.addDocument({ ...base, id: "1", contentHash: "same" })).toBe(true);
-    expect(idx.addDocument({ ...base, id: "2", contentHash: "same" })).toBe(false);
+    const base = { url: "https://a.test/", title: "Hi", text: "unique content words here hello world", wordCount: 5 };
+    expect(idx.addDocument(doc({ ...base, id: "1", contentHash: "same" }))).toBe(true);
+    expect(idx.addDocument(doc({ ...base, id: "2", contentHash: "same" }))).toBe(false);
   });
 });
