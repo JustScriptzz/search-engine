@@ -14,7 +14,8 @@ async function run(query) {
   results.innerHTML = "";
   const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&limit=10`);
   const data = await res.json();
-  meta.textContent = `${data.count} results in ${data.tookMs}ms for "${data.query}"`;
+  const tuned = data.countryCode && data.countryCode !== "XX" ? ` · tuned for ${data.country}` : "";
+  meta.textContent = `${data.count} results in ${data.tookMs}ms for "${data.query}"${tuned}`;
   for (const h of data.hits) {
     const div = document.createElement("div");
     div.className = "hit";

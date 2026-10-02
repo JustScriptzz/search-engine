@@ -1,2 +1,12 @@
 https://example.com
+https://developer.mozilla.org/en-US/docs/Web
+https://news.ycombinator.com
+https://www.bbc.com/news
+https://www.dw.com/en/top-stories/s-9097
+https://www.france24.com/en/
+https://www.aljazeera.com/
+https://www3.nhk.or.jp/nhnews/en/
 https://en.wikipedia.org/wiki/Search_engine
+https://github.com/explore
+https://stackoverflow.com/questions
+https://www.reuters.com/

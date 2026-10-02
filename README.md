@@ -33,6 +33,11 @@ bun src/cli.ts serve --port 3000
 #      GET /api/stats
 ```
 
+Country tuning: the API reads the visitor IP (`x-forwarded-for` aware),
+resolves the country via ip-api.com (cached 6h, 700ms timeout, fail-open),
+and boosts results from that country's home TLDs 1.35x. `?country=DE`
+overrides detection (testing / privacy). IPs are never stored.
+
 Options:
 
 - `--same-host-only` — stay on seed domains (good for large crawls)

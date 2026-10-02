@@ -1,4 +1,5 @@
 import { InvertedIndex } from "./index/invertedIndex.ts";
+import { countryBoost, getClientIp, lookupCountry } from "./geo.ts";
 
 export const INDEX_PATH = "data/index.json";
 
@@ -30,9 +31,22 @@ export function startServer(idx: InvertedIndex, port = 3000) {
       if (url.pathname === "/api/search") {
         const q = url.searchParams.get("q") ?? "";
         const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "10"), 50);
+        // ?country=DE overrides IP detection (useful for testing / privacy).
+        const override = (url.searchParams.get("country") ?? "").toUpperCase();
+        const geo = override
+          ? { country: override, countryCode: override, fromCache: false }
+          : await lookupCountry(getClientIp(req));
         const t0 = Date.now();
-        const hits = idx.search(q, isNaN(limit) ? 10 : limit);
-        return Response.json({ query: q, count: hits.length, tookMs: Date.now() - t0, hits }, { headers: cors });
+        // Oversample so country-boosted docs can surface, then cut to limit.
+        const hits = idx
+          .search(q, isNaN(limit) ? 10 : 50)
+          .map((h) => ({ ...h, score: Math.round(h.score * countryBoost(h.url, geo.countryCode) * 1000) / 1000 }))
+          .sort((a, b) => b.score - a.score)
+          .slice(0, isNaN(limit) ? 10 : limit);
+        return Response.json(
+          { query: q, count: hits.length, tookMs: Date.now() - t0, hits, country: geo.country, countryCode: geo.countryCode },
+          { headers: cors },
+        );
       }
       if (url.pathname === "/api/stats") {
         return Response.json({ ...idx.stats(), indexPath: INDEX_PATH }, { headers: cors });
