@@ -3,6 +3,7 @@ import { fetchHtml } from "./fetcher.ts";
 import { normalizeUrl, parseHtml } from "./parser.ts";
 import { isAllowed } from "./robots.ts";
 import { isAllowedLanguage } from "../lang.ts";
+import { isJunkUrl, isLowQualityText } from "../quality.ts";
 import { CONFIG } from "../config.ts";
 import { InvertedIndex } from "../index/invertedIndex.ts";
 import { normalizeText } from "../index/tokenizer.ts";
@@ -86,7 +87,7 @@ export async function crawl(
             continue;
           }
           const parsed = parseHtml(html, norm);
-          if (parsed.text.length < CONFIG.crawl.minTextChars) {
+          if (isLowQualityText(parsed.text) || parsed.text.length < CONFIG.crawl.minTextChars) {
             errors++;
             continue;
           }
@@ -143,18 +144,7 @@ function sleep(ms: number) {
 }
 
 /** Drop social/video/ad and account-wall links before they enter the frontier. */
-export function isJunkUrl(urlStr: string): boolean {
-  let u: URL;
-  try {
-    u = new URL(urlStr);
-  } catch {
-    return true;
-  }
-  const host = u.hostname.replace(/^www\./, "");
-  if (CONFIG.crawl.blockedHosts.some((h) => host === h || host.endsWith(`.${h}`))) return true;
-  const path = u.pathname.toLowerCase();
-  return CONFIG.crawl.blockedPathPatterns.some((p) => path.startsWith(p) || path.includes(p));
-}
+export { isJunkUrl };
 
 function hash(s: string): string {
   const h = new Bun.CryptoHasher("sha256");

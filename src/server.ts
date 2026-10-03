@@ -1,6 +1,7 @@
 import { CONFIG } from "./config.ts";
 import { runAgent, type ChatTurn } from "./ai.ts";
 import { countryBoost, getClientIp, lookupCountry } from "./geo.ts";
+import { rejectDoc } from "./quality.ts";
 import { hasApiKey } from "./provider.ts";
 import { InvertedIndex } from "./index/invertedIndex.ts";
 
@@ -61,11 +62,23 @@ interface SearchOptions {
   domain?: string;
 }
 
-/** BM25 hits with the visitor's country boost, plus domain facets. */
+/** BM25 hits with the visitor's country boost, plus domain facets.
+ *  The quality gate runs here too, so an index built before a filter existed
+ *  (or crawled with an older config) can never surface junk. */
 function runSearch(idx: InvertedIndex, opts: SearchOptions) {
-  const oversample = Math.min(Math.max(opts.limit * 4, 40), 200);
+  const oversample = Math.min(Math.max(opts.limit * 6, 60), 400);
+  const seen = new Set<string>();
   const scored = idx
     .search(opts.query, oversample)
+    .filter((h) => {
+      const doc = idx.docs.get(h.id);
+      if (!doc) return false;
+      if (seen.has(doc.url)) return false;
+      const bad = rejectDoc(doc);
+      if (bad.junk || bad.language || bad.lowQuality) return false;
+      seen.add(doc.url);
+      return true;
+    })
     .map((h) => ({ ...h, domain: domainOf(h.url), score: round(h.score * countryBoost(h.url, opts.countryCode)) }))
     .sort((a, b) => b.score - a.score);
 

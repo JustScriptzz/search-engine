@@ -104,6 +104,23 @@ export class InvertedIndex {
       });
   }
 
+  /** Drop a document and every posting that referenced it (used by `prune`). */
+  remove(docId: string): boolean {
+    const doc = this.docs.get(docId);
+    if (!doc) return false;
+    this.docs.delete(docId);
+    const len = this.docLens.get(docId);
+    if (len !== undefined) {
+      this.docLens.delete(docId);
+      this.totalLen -= len;
+    }
+    for (const [term, list] of this.index) {
+      if (!list.delete(docId)) continue;
+      if (list.size === 0) this.index.delete(term);
+    }
+    return true;
+  }
+
   stats(): IndexStats {
     return { docCount: this.docCount, termCount: this.index.size, avgDocLen: Math.round(this.avgDocLen * 10) / 10 };
   }

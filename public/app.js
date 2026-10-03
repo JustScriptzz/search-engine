@@ -126,7 +126,7 @@
     const tags = li.querySelectorAll(".tag");
     const coverage = h.queryTerms ? ` · ${h.matchedTerms ?? 0}/${h.queryTerms} terms` : "";
     tags[0].textContent = `#${i + 1} · score ${h.score ?? "—"}${coverage}`;
-    tags[1].textContent = `${(h.wordCount ?? 0).toLocaleString()} words`;
+    tags[1].textContent = `${(h.wordCount ?? 0).toLocaleString("en-US")} words`;
     li.addEventListener("mouseenter", () => select(i));
     return li;
   }

@@ -1,0 +1,60 @@
+import { describe, expect, test } from "bun:test";
+import { isJunkUrl, isLatinLanguageCode, isLowQualityText, rejectDoc } from "./quality.ts";
+
+describe("quality gate", () => {
+  test("drops social, video and ad hosts", () => {
+    expect(isJunkUrl("https://www.youtube.com/@arstechnica")).toBe(true);
+    expect(isJunkUrl("https://twitter.com/someone")).toBe(true);
+    expect(isJunkUrl("https://aboutads.info/")).toBe(true);
+  });
+
+  test("drops account and legal pages", () => {
+    expect(isJunkUrl("https://arstechnica.com/subscribe")).toBe(true);
+    expect(isJunkUrl("https://example.com/privacy")).toBe(true);
+  });
+
+  test("keeps real content pages", () => {
+    expect(isJunkUrl("https://arstechnica.com/gadgets/2026/01/post/")).toBe(false);
+  });
+
+  test("language codes map to scripts", () => {
+    expect(isLatinLanguageCode("en-GB")).toBe(true);
+    expect(isLatinLanguageCode("de")).toBe(true);
+    expect(isLatinLanguageCode("ar")).toBe(false);
+  });
+
+  test("rejects a Persian wikipedia page", () => {
+    const doc = {
+      url: "https://fa.wikipedia.org/wiki/جستجوگر",
+      lang: "fa",
+      text: "جستجوگر گوگل - ویکی‌پدیا، دانشنامهٔ آزاد یک موتور جستجو است که کاربران وب را میانگردد.",
+    };
+    expect(rejectDoc(doc).language).toBe(true);
+  });
+
+  test("rejects a Russian page even without a lang attribute", () => {
+    expect(rejectDoc({ url: "https://example.com/ru", text: "Поисковая система Википедия это сайт".repeat(4) }).language).toBe(true);
+  });
+
+  test("accepts an English article", () => {
+    const doc = {
+      url: "https://www.bbc.com/news/story",
+      lang: "en",
+      text: "Global markets moved through the session today while leaders met in Geneva to discuss a new energy agreement covering imports, tariffs and long term supply contracts.",
+    };
+    expect(rejectDoc(doc)).toEqual({});
+  });
+
+  test("rejects nav-only boilerplate and cookie walls", () => {
+    expect(isLowQualityText("Home About Contact Privacy Terms Subscribe")).toBe(true);
+    expect(isLowQualityText("Please enable JavaScript to continue.")).toBe(true);
+    expect(isLowQualityText("A detailed article body with real prose about markets and policy, written for a reader who wants to understand what happened and why.")).toBe(false);
+  });
+
+  test("rejects a YouTube homepage stored in the index", () => {
+    const doc = { url: "https://www.youtube.com/", text: "About Press Copyright Contact us Creators Advertise Developers Terms Privacy Policy".repeat(3) };
+    const bad = rejectDoc(doc);
+    expect(bad.junk).toBe(true);
+    expect(bad.lowQuality).toBe(true);
+  });
+});

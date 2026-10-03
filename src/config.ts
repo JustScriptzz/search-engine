@@ -96,6 +96,13 @@ export const CONFIG = {
     maxBlockedRatio: 0.2,
   },
 
+  quality: {
+    // Query-time gate (also applied while crawling). A doc shorter than this, or
+    // built from repeated nav/link filler, is never shown.
+    minDocChars: 80,
+    maxShingleDupRatio: 0.35,
+  },
+
   bm25: {
     k1: 1.2,
     b: 0.75,

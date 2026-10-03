@@ -5,6 +5,7 @@ import { runAgent } from "./ai.ts";
 import { hasApiKey } from "./provider.ts";
 import { InvertedIndex } from "./index/invertedIndex.ts";
 import { loadIndex, saveIndex, startServer } from "./server.ts";
+import { rejectDoc } from "./quality.ts";
 
 await loadEnvFile();
 
@@ -23,7 +24,28 @@ async function readSeeds(file: string | undefined): Promise<string[]> {
 
 const cmd = process.argv[2];
 
-if (cmd === "crawl") {
+if (cmd === "prune") {
+  // Clean an index built with older filters: junk URLs, non-Latin pages and
+  // boilerplate stubs are dropped in place, no re-crawl needed.
+  const idx = await loadIndex();
+  const before = idx.docCount;
+  const removed: Record<string, number> = { junk: 0, language: 0, lowQuality: 0 };
+  for (const doc of [...idx.docs.values()]) {
+    const bad = rejectDoc(doc);
+    const key = bad.junk ? "junk" : bad.language ? "language" : bad.lowQuality ? "lowQuality" : null;
+    if (key) {
+      idx.remove(doc.id);
+      removed[key]++;
+    }
+  }
+  await saveIndex(idx);
+  const s = idx.stats();
+  console.log(
+    `Pruned ${before - idx.docCount} of ${before} docs ` +
+      `(junk=${removed.junk} language=${removed.language} lowQuality=${removed.lowQuality}). ` +
+      `Left ${s.docCount} docs / ${s.termCount} terms.`,
+  );
+} else if (cmd === "crawl") {
   const seeds = await readSeeds(arg("--seeds"));
   const max = parseInt(arg("--max", String(CONFIG.crawl.maxPages))!);
   const concurrency = parseInt(arg("--concurrency", String(CONFIG.crawl.concurrency))!);

@@ -92,6 +92,8 @@ a { color: inherit; }
   backdrop-filter: blur(14px) saturate(140%);
   border-bottom: 1px solid var(--line);
 }
+/* the search field must never be wider than its column */
+.omni { min-width: 0; width: 100%; }
 main { flex: 1; width: 100%; max-width: 1080px; margin: 0 auto; padding: 1.5rem 1.25rem 3rem; }
 
 .brand { display: flex; align-items: center; gap: .5rem; text-decoration: none; font-weight: 700; letter-spacing: -.02em; font-size: 1.05rem; white-space: nowrap; }
@@ -279,19 +281,29 @@ main { flex: 1; width: 100%; max-width: 1080px; margin: 0 auto; padding: 1.5rem 
 .dot-sep { opacity: .5; }
 
 /* ---------- 8. responsive ---------- */
-@media (max-width: 860px) {
-  .bar { grid-template-columns: auto 1fr; grid-template-areas: "brand omni" "right right"; row-gap: .6rem; }
+@media (max-width: 900px) {
+  .bar {
+    grid-template-columns: auto minmax(0,1fr);
+    grid-template-areas: "brand right" "omni omni";
+    row-gap: .7rem;
+  }
   .brand { grid-area: brand; }
   .omni { grid-area: omni; }
-  .bar-right { grid-area: right; justify-content: space-between; }
+  .bar-right { grid-area: right; justify-self: end; }
   .hint-key { display: none; }
+  .filters { padding-top: .7rem; }
 }
 @media (max-width: 560px) {
-  main { padding-top: 1rem; }
-  .result { grid-template-columns: 1fr; }
+  .bar { padding: .7rem .9rem; gap: .6rem; }
+  main { padding: 1rem .9rem 2.5rem; }
+  .brand-name { font-size: 1rem; }
+  .chip { display: none; }
+  .ai-btn { padding: .5rem .7rem; }
+  .result { grid-template-columns: 1fr; padding: .9rem 1rem; }
   .fav { display: none; }
   .ai-btn span { display: none; }
   .drawer { width: 100%; }
+  .foot { font-size: .7rem; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
