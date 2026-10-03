@@ -71,4 +71,16 @@ describe("quality gate", () => {
     };
     expect(rejectDoc(doc).lowQuality).toBe(true);
   });
+
+  test("a site card survives the gate even though it is link-heavy", () => {
+    // Regression: a duplicated density check used to prune every site card,
+    // which is why searching "google" found nothing.
+    const card = { url: "https://www.google.com/", text: "Google — google.com. ", wordCount: 4, linkDensity: 0.9, siteCard: true };
+    expect(rejectDoc(card)).toEqual({});
+  });
+
+  test("a stub entry survives too", () => {
+    const stub = { url: "https://stackoverflow.com/", text: "Stack Overflow — stackoverflow.com. Listed in the MiniSearch allowlist.", wordCount: 10, linkDensity: 1, siteCard: true, stub: true };
+    expect(rejectDoc(stub)).toEqual({});
+  });
 });

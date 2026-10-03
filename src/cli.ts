@@ -1,4 +1,4 @@
-import { crawl } from "./crawler/crawler.ts";
+import { crawl, bootstrapFamousSites } from "./crawler/crawler.ts";
 import { CONFIG } from "./config.ts";
 import { loadEnvFile } from "./env.ts";
 import { runAgent } from "./ai.ts";
@@ -6,6 +6,8 @@ import { hasApiKey } from "./provider.ts";
 import { InvertedIndex } from "./index/invertedIndex.ts";
 import { loadIndex, saveIndex, startServer } from "./server.ts";
 import { rejectDoc } from "./quality.ts";
+import { discoverMany } from "./discovery.ts";
+import { FAMOUS_SITES } from "./famous.ts";
 
 await loadEnvFile();
 
@@ -24,7 +26,27 @@ async function readSeeds(file: string | undefined): Promise<string[]> {
 
 const cmd = process.argv[2];
 
-if (cmd === "prune") {
+if (cmd === "discover") {
+  // Ask the Common Crawl index for real URLs instead of relying on a seed list.
+  const limit = parseInt(arg("--per-pattern", String(CONFIG.discovery.perPattern))!);
+  const topics = arg("--patterns")?.split(",").map((t) => t.trim()).filter(Boolean);
+  const patterns = topics?.length ? topics : [
+    ...FAMOUS_SITES.slice(0, 20).map((s) => `*.${new URL(s.url).hostname.replace(/^www\./, "")}/*`),
+    ...CONFIG.discovery.topicPatterns,
+  ];
+  console.log(`Discovering via Common Crawl across ${patterns.length} patterns...`);
+  const res = await discoverMany(patterns, limit);
+  if (res.collection) console.log(`collection: ${res.collection}`);
+  for (const f of res.failures) console.error(`  ! ${f}`);
+  console.log(`found ${res.urls.length} URLs`);
+  const out = arg("--out");
+  if (out) {
+    await Bun.write(out, res.urls.join("\n"));
+    console.log(`wrote ${out}`);
+  } else {
+    for (const u of res.urls) console.log(u);
+  }
+} else if (cmd === "prune") {
   // Clean an index built with older filters: junk URLs, non-Latin pages and
   // boilerplate stubs are dropped in place, no re-crawl needed.
   const idx = await loadIndex();
@@ -46,12 +68,32 @@ if (cmd === "prune") {
       `Left ${s.docCount} docs / ${s.termCount} terms.`,
   );
 } else if (cmd === "crawl") {
-  const seeds = await readSeeds(arg("--seeds"));
+  let seeds = await readSeeds(arg("--seeds"));
+  // Optional web-scale discovery: pull real URLs from the Common Crawl index.
+  if (process.argv.includes("--discover")) {
+    const perPattern = parseInt(arg("--discover-limit", String(CONFIG.discovery.perPattern))!);
+    console.log(`discovering URLs (per pattern: ${perPattern})...`);
+    const found = await discoverMany(CONFIG.discovery.topicPatterns, perPattern);
+    if (found.collection) console.log(`collection: ${found.collection}`);
+    for (const f of found.failures) console.error(`  ! ${f}`);
+    console.log(`discovered ${found.urls.length} URLs; adding to seeds`);
+    seeds = [...new Set([...seeds, ...found.urls])];
+  }
   const max = parseInt(arg("--max", String(CONFIG.crawl.maxPages))!);
   const concurrency = parseInt(arg("--concurrency", String(CONFIG.crawl.concurrency))!);
   const sameHostOnly = process.argv.includes("--same-host-only") || CONFIG.crawl.sameHostOnly;
   console.log(`${CONFIG.name} ${CONFIG.version} — crawling ${seeds.length} seeds (max=${max}, concurrency=${concurrency})`);
   const idx = await loadIndex();
+  // Guaranteed pass for allowlisted site roots before the wide crawl.
+  if (!process.argv.includes("--no-bootstrap")) {
+    const boot = await bootstrapFamousSites(idx, {
+      onPage: (doc) => console.log(`  [site] ${doc.title.slice(0, 50)} | ${doc.url}`),
+    });
+    if (boot.fetched || boot.failed) {
+      console.log(`bootstrap: ${boot.fetched} site cards, ${boot.failed} unreachable/blocked`);
+      await saveIndex(idx);
+    }
+  }
   const result = await crawl(
     seeds,
     idx,

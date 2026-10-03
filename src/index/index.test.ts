@@ -60,6 +60,13 @@ describe("index + BM25", () => {
     expect(hits[0].matchedTerms).toBe(2);
   });
 
+  test("the canonical domain beats a subdomain of it", () => {
+    const idx = new InvertedIndex();
+    idx.addDocument(doc({ id: "sub", contentHash: "s", url: "https://issuetracker.google.com/issues", title: "Issue Tracker", text: "google issue tracker ".repeat(30) }));
+    idx.addDocument(doc({ id: "root", contentHash: "r", url: "https://www.google.com/", title: "Google", text: "google search ".repeat(30) }));
+    expect(idx.search("google", 5)[0].id).toBe("root");
+  });
+
   test("a site whose domain matches the query outranks pages that mention it", () => {
     const idx = new InvertedIndex();
     // mentions youtube in the body only

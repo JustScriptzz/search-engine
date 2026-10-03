@@ -10,17 +10,23 @@ type InvertedList = Map<string, Map<string, Posting>>;
 
 const { k1: K1, b: B, titleRepeat: TITLE_REPEAT, coordination: COORD, field: FIELD } = CONFIG.bm25;
 
+/** Normalised hostname, no "www.". */
+function hostnameOf(url: string): string {
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
 /** Host label + public suffix, e.g. "www.bbc.co.uk" -> {bbc, uk}. */
 function hostTokens(url: string): Set<string> {
-  try {
-    const host = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
-    const parts = host.split(".").filter(Boolean);
-    const tokens = new Set<string>(parts);
-    if (parts.length > 1) tokens.add(parts[parts.length - 2]); // "bbc" from bbc.com
-    return tokens;
-  } catch {
-    return new Set();
-  }
+  const host = hostnameOf(url);
+  if (!host) return new Set();
+  const parts = host.split(".").filter(Boolean);
+  const tokens = new Set<string>(parts);
+  if (parts.length > 1) tokens.add(parts[parts.length - 2]); // "bbc" from bbc.com
+  return tokens;
 }
 
 export class InvertedIndex {
@@ -31,6 +37,8 @@ export class InvertedIndex {
   titleTerms = new Map<string, Set<string>>();
   /** Host label + TLD tokens per doc, e.g. "youtube.com" -> {youtube}. */
   hostTerms = new Map<string, Set<string>>();
+  /** Normalised hostnames present in the index (no "www."), for exact checks. */
+  hosts = new Set<string>();
   totalLen = 0;
 
   get docCount() {
@@ -56,6 +64,7 @@ export class InvertedIndex {
     this.totalLen += len;
     this.titleTerms.set(doc.id, new Set(tokenize(doc.title)));
     this.hostTerms.set(doc.id, hostTokens(doc.url));
+    this.hosts.add(hostnameOf(doc.url));
 
     const tf = new Map<string, number>();
     for (const t of tokens) tf.set(t, (tf.get(t) ?? 0) + 1);
@@ -98,7 +107,16 @@ export class InvertedIndex {
       }
     }
 
-    // Coordination factor: reward documents that cover more of the query.
+    /** True when this page *is* the site the query names: query "google" matches
+ *  google.com but not issuetracker.google.com. */
+function isExactHost(url: string, term: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+    return host === term || host.startsWith(`${term}.`);
+  } catch {
+    return false;
+  }
+}
     const total = unique.length || 1;
     const queryPhrase = query.toLowerCase().replace(/\s+/g, " ").trim();
 
@@ -115,12 +133,17 @@ export class InvertedIndex {
         const host = this.hostTerms.get(docId) ?? new Set<string>();
         let titleHits = 0;
         let hostHits = 0;
+        let exactHits = 0;
         for (const t of unique) {
           if (title.has(t)) titleHits++;
           if (host.has(t)) hostHits++;
+          if (isExactHost(doc.url, t)) exactHits++;
         }
         const titleFactor = 1 + (titleHits / total) * FIELD.title;
-        const hostFactor = 1 + (hostHits / total) * FIELD.host;
+        // Subdomain matches count for less: google.com should beat
+        // issuetracker.google.com when someone searches "google".
+        const hostFactor =
+          1 + (exactHits / total) * FIELD.host + (hostHits / total) * FIELD.subdomainHost;
         const phraseFactor =
           queryPhrase.length > 3 && doc.title.toLowerCase().includes(queryPhrase) ? FIELD.phrase : 1;
 
@@ -147,6 +170,11 @@ export class InvertedIndex {
           lang: doc.lang ?? "",
         };
       });
+  }
+
+  /** True when this exact hostname is indexed (no subdomain matching). */
+  hasExactHost(hostname: string): boolean {
+    return this.hosts.has(hostname.toLowerCase().replace(/^www\./, ""));
   }
 
   /** Every host in the index, e.g. "youtube.com" -> true. Used to tell a user
@@ -200,6 +228,7 @@ export class InvertedIndex {
       // Derived field data is rebuilt on load, so old index files keep working.
       idx.titleTerms.set(d.id, new Set(tokenize(d.title ?? "")));
       idx.hostTerms.set(d.id, hostTokens(d.url ?? ""));
+      idx.hosts.add(hostnameOf(d.url ?? ""));
     }
     for (const [term, entries] of data.index ?? []) idx.index.set(term, new Map(entries));
     for (const [id, len] of data.docLens ?? []) idx.docLens.set(id, len);

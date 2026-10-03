@@ -68,12 +68,52 @@ curl -N -X POST localhost:3000/api/chat -H 'content-type: application/json' \
 
 Measured: tool call → cited answer in ~2s.
 
+## Indexing the famous sites
+
+`src/famous.ts` holds a 66-site allowlist (Google, Wikipedia, GitHub, NASA,
+Netflix Tech, Khan Academy, Library of Congress, ANSA, Corriere…). Homepages of
+those sites are link farms with almost no prose, so instead of dropping them the
+crawler stores a **site card** — title + host + the first real sentences. Cards
+are only minted for a site's own front page or a top-level section, never for
+`/store`, `/signin` or app-store leaves.
+
+Result: searching `google` returns `google.com` itself, not pages that merely
+mention it.
+
+## Internet-scale discovery
+
+Seed lists only get you so far, so `src/discovery.ts` queries the **Common Crawl
+index** — a public catalogue of every URL anyone has crawled:
+
+```bash
+bun src/cli.ts discover --patterns "*.nasa.gov/*" --per-pattern 8
+bun src/cli.ts crawl --discover --discover-limit 10 --max 600
+```
+
+It resolves the newest collection from `collinfo.json`, streams the match set
+and aborts once it has enough URLs (their index ignores `pageSize` and 504s on
+`matchType=domain`). Topic wildcards in `config.discovery.topicPatterns` cover
+`en.wikipedia.org`, NASA, arXiv, IEEE, Nature, gov.uk, europa.eu, `.edu`,
+GitHub Pages, Rust/Python/MDN/Apache.
+
+Honest limits: this finds URLs, it does not index the whole web. Their index
+serves stale URLs and ignores `robots.txt` on our side — the crawler still
+enforces robots, per-host politeness and the quality gate on every fetch. On a
+1 GB VPS budget crawl volume by pages, not ambition: raise `--max` as disk
+allows, and re-run `prune` afterwards.
+
 ## Ranking
 
-BM25 (`k1=1.2`, `b=0.75`) with the title repeated twice in the term stream, plus
-a **query-term coordination factor**: score × `(matched_terms / query_terms)^1.6`.
-That stops a page that repeats one term 40 times from outranking a page that
-covers the whole query. The UI shows coverage per result (`2/2 terms`).
+BM25 (`k1=1.2`, `b=0.75`) with the title repeated twice in the term stream, plus:
+
+- **query-term coordination** — score × `(matched/query)^1.6`, so covering the
+  whole query beats repeating one term
+- **field weights** — title ×1.2, exact domain ×2.2, subdomain ×0.8, exact
+  phrase in title ×0.8 (`google.com` beats `issuetracker.google.com`)
+- **country + language** — ×1.8 for the visitor's TLD, ×2.4 for pages written in
+  their language (half for the English fallback)
+
+The UI shows coverage per result (`2/2 terms`).
 
 Crawl quality: `Accept-Language` + charset-correct decoding, script detection
 (dropping non-Latin pages), robots.txt, per-host politeness, content dedup, and

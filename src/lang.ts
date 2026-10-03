@@ -10,6 +10,22 @@ const RANGES: Array<{ script: string; re: RegExp }> = [
   { script: "devanagari", re: /[\u0900-\u097F\uA8E0-\uA8FF]/g },
   { script: "thai", re: /[\u0E00-\u0E7F]/g },
   { script: "greek", re: /[\u0370-\u03FF\u1F00-\u1FFF]/g },
+  { script: "bengali", re: /[\u0980-\u09FF]/g },
+  { script: "tamil", re: /[\u0B80-\u0BFF]/g },
+  { script: "telugu", re: /[\u0C00-\u0C7F]/g },
+  { script: "kannada", re: /[\u0C80-\u0CFF]/g },
+  { script: "malayalam", re: /[\u0D00-\u0D7F]/g },
+  { script: "gujarati", re: /[\u0A80-\u0AFF]/g },
+  { script: "punjabi", re: /[\u0A00-\u0A7F]/g },
+  { script: "oriya", re: /[\u0B00-\u0B7F]/g },
+  { script: "sinhala", re: /[\u0D80-\u0DFF]/g },
+  { script: "myanmar", re: /[\u1000-\u109F\uAA60-\uAA7F]/g },
+  { script: "khmer", re: /[\u1780-\u17FF]/g },
+  { script: "lao", re: /[\u0E80-\u0EFF]/g },
+  { script: "tibetan", re: /[\u0F00-\u0FFF]/g },
+  { script: "georgian", re: /[\u10A0-\u10FF\u2D00-\u2D2F]/g },
+  { script: "armenian", re: /[\u0530-\u058F]/g },
+  { script: "ethiopic", re: /[\u1200-\u137F]/g },
 ];
 
 const LATIN_LETTER = /[A-Za-z\u00C0-\u024F]/g;

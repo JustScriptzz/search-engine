@@ -6,8 +6,10 @@ export interface FetchOpts {
   acceptLanguage?: string | null;
 }
 
-/** Fetch HTML with an English-language preference and correct charset decoding. */
-export async function fetchHtml(url: string, opts: FetchOpts = {}): Promise<string | null> {
+/** Fetch HTML with an English-language preference and correct charset decoding.
+ *  Retries once on a timeout, because transient timeouts are what make a
+ *  concurrent crawl look like it "skipped" well-known sites. */
+export async function fetchHtml(url: string, opts: FetchOpts = {}, attempts = 1): Promise<string | null> {
   const timeoutMs = opts.timeoutMs ?? CONFIG.crawl.timeoutMs;
   const maxBytes = opts.maxBytes ?? CONFIG.crawl.maxBytes;
   const acceptLanguage = opts.acceptLanguage === undefined ? CONFIG.acceptLanguage : opts.acceptLanguage;
@@ -35,8 +37,11 @@ export async function fetchHtml(url: string, opts: FetchOpts = {}): Promise<stri
     if (buf.byteLength > hardCap) return null;
     const usable = buf.byteLength > maxBytes ? buf.slice(0, maxBytes) : buf;
     return decodeHtml(usable, ct);
-  } catch {
-    return null;
+  } catch (err) {
+    // One retry: transient timeouts are the main cause of a crawl that looks
+    // like it "skipped" famous sites under load.
+    if (!(err instanceof Error && /abort/i.test(err.name + err.message)) || attempts <= 0) return null;
+    return fetchHtml(url, { ...opts, timeoutMs: Math.max(timeoutMs, 20_000) }, attempts - 1);
   } finally {
     clearTimeout(t);
   }

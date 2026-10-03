@@ -1,4 +1,7 @@
 // Every hardcoded value lives here. Change it once, not in six files.
+import { FAMOUS_SITES } from "./famous.ts";
+
+const FAMOUS_SITE_URLS = FAMOUS_SITES.map((s) => s.url);
 
 export const CONFIG = {
   name: "MiniSearch",
@@ -16,10 +19,15 @@ export const CONFIG = {
   },
 
   // English-language, non-Wikipedia sources.
+  // Famous sites are indexed too, including link-farm homepages: those become
+  // "site cards" (title + description) so searching "google" finds google.com.
+  // Full allowlist in src/famous.ts.
   // English-language, deliberately mixed: world news, tech, primary docs,
   // science, standards, discussion. Wikipedia is a couple of entries out of
   // thirty, not the corpus.
   seeds: [
+    // the allowlist of famous sites first, so "google"/"github"/"nasa" resolve
+    ...FAMOUS_SITE_URLS,
     // world + general news
     "https://www.bbc.com/news",
     "https://www.reuters.com",
@@ -78,21 +86,31 @@ export const CONFIG = {
     maxPages: 2000,
     concurrency: 3,
     politenessMs: 800,
-    timeoutMs: 12_000,
     maxBytes: 2_000_000,
     minTextChars: 100,
     maxTextChars: 20_000,
     maxLinksPerPage: 200,
     maxOutlinksQueued: 500,
     sameHostOnly: false,
+    // Stops one link-heavy seed from eating the whole page budget.
+    maxPagesPerHost: 6,
+    // Famous-site roots get their own slow pass first (see bootstrapFamous),
+    // so a link-heavy wide crawl cannot starve them.
+    timeoutMs: 25_000,
+    // Host prefixes that are never content: account/investor/support subdomains.
+    blockedHostPrefixes: [
+      "account", "accounts", "investor", "investors", "skills", "maintainers",
+      "locate", "careers", "jobs", "support", "help", "status", "billing",
+      "checkout", "my", "dashboard",
+    ] as string[],
     // Link-shaped noise we never want in the index.
     blockedHosts: [
       // Login-walled social networks: no public text to index.
       "x.com", "twitter.com", "facebook.com", "instagram.com", "linkedin.com",
       "tiktok.com", "pinterest.com", "discord.com", "reddit.com",
-      // Ad and tracking infrastructure.
-      "doubleclick.net", "googlesyndication.com", "adservice.google.com",
-      "aboutads.info", "adsrvr.org", "amazon-adsystem.com",
+      // Auth endpoints and ad infrastructure.
+      "accounts.google.com", "doubleclick.net", "googlesyndication.com",
+      "adservice.google.com", "aboutads.info", "adsrvr.org", "amazon-adsystem.com",
     ] as string[],
     blockedPathPatterns: [
       "/subscribe", "/login", "/signin", "/sign-in", "/register", "/account",
@@ -105,6 +123,11 @@ export const CONFIG = {
       "user", "users", "u", "profile", "profiles", "author", "authors", "members",
       "tag", "tags", "category", "categories", "feed", "rss", "sitemap",
       "from", "item", "items", "comments", "thread", "submit", "drafts",
+      // auth endpoints and locale/marketing variants
+      "servicelogin", "accounts", "intl", "ads", "adwords", "preferences",
+      // store/checkout/app/profile subpages: no article text
+      "search", "signin", "signup", "store", "shop", "cart", "checkout",
+      "investors", "investor", "apps", "app", "download", "downloads", "imghp",
     ] as string[],
   },
 
@@ -113,8 +136,13 @@ export const CONFIG = {
 
   language: {
     // Scripts we refuse to index. Latin-script languages stay in.
-    blockedScripts: ["arabic", "hebrew", "cyrillic", "cjk", "devanagari", "thai", "greek"] as string[],
-    maxBlockedRatio: 0.2,
+    blockedScripts: [
+      "arabic", "hebrew", "cyrillic", "cjk", "devanagari", "thai", "greek",
+      "bengali", "tamil", "telugu", "kannada", "malayalam", "gujarati",
+      "punjabi", "oriya", "sinhala", "myanmar", "khmer", "lao", "tibetan",
+      "georgian", "armenian", "ethiopic", "cherokee",
+    ] as string[],
+    maxBlockedRatio: 0.15,
   },
 
   quality: {
@@ -140,7 +168,7 @@ export const CONFIG = {
     // Field weights applied on top of BM25: a term in the page title counts
     // more than in the body, and matching the site's own host counts most, so
     // "youtube" surfaces youtube.com rather than pages that mention it.
-    field: { title: 1.2, host: 2.2, phrase: 0.8 },
+    field: { title: 1.2, host: 2.2, subdomainHost: 0.8, phrase: 0.8 },
   },
 
   tokenizer: {
@@ -189,6 +217,35 @@ export const CONFIG = {
     nativeTools: false,
     minIntervalMs: 400,
     readPageChars: 4000,
+  },
+
+  discovery: {
+    // Common Crawl's public index: a catalogue of every crawled URL on the web.
+    collectionIndexUrl: "https://index.commoncrawl.org/collinfo.json",
+    indexUrl: "https://index.commoncrawl.org",
+    timeoutMs: 90_000,
+    collectionCacheTtlMs: 6 * 60 * 60 * 1000,
+    // How many URLs to pull per pattern during `discover`.
+    perPattern: 40,
+    // Topic wildcards expanded into URL patterns for `crawl --discover`.
+    topicPatterns: [
+      "en.wikipedia.org/wiki/*",
+      "*.nasa.gov/*",
+      "*.arxiv.org/abs/*",
+      "*.ieee.org/*",
+      "*.nature.com/articles/*",
+      "*.sciencedirect.com/science/article/*",
+      "*.gov.uk/*",
+      "*.europa.eu/*",
+      "*.edu/*",
+      "*.github.io/*",
+      "*.rust-lang.org/*",
+      "*.python.org/*",
+      "*.mozilla.org/en-US/docs/*",
+      "*.apache.org/*",
+      "*.redcross.org/*",
+      "*.un.org/*",
+    ] as string[],
   },
 
   ui: {

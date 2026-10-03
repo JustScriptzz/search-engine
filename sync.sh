@@ -6,6 +6,8 @@ if [ ! -d .git ]; then
   rm -rf /tmp/s
 fi
 if [ ! -s data/index.json ]; then
+  # Bootstrap indexes the famous-site roots first, then the wide crawl.
+  # Raise --max as disk allows; 2000 pages is roughly 40MB of index.
   bun src/cli.ts crawl --max 2000 --concurrency 3
 fi
 # Always clean the index against the current filters: cheap, and it rescues an

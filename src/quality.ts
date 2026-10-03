@@ -2,7 +2,16 @@
 //   1. the crawler, before a page enters the frontier or the index
 //   2. every search, so a stale index can never surface junk
 import { CONFIG } from "./config.ts";
+import { isFamousHost } from "./famous.ts";
 import { isAllowedLanguage, scriptProfile } from "./lang.ts";
+
+function hostnameOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
+}
 
 /** Social/video/ad hosts and account-or-legal pages. */
 export function isJunkUrl(urlStr: string): boolean {
@@ -14,6 +23,8 @@ export function isJunkUrl(urlStr: string): boolean {
   }
   const host = u.hostname.replace(/^www\./, "");
   if (CONFIG.crawl.blockedHosts.some((h) => host === h || host.endsWith(`.${h}`))) return true;
+  const label = host.split(".")[0];
+  if (CONFIG.crawl.blockedHostPrefixes.includes(label)) return true;
   const path = u.pathname.toLowerCase();
   if (CONFIG.crawl.blockedPathPatterns.some((p) => path.startsWith(p) || path.includes(p))) return true;
   // Segment-wise match: /user, /user/, /tag/foo are all listing pages.
@@ -57,13 +68,18 @@ export interface RejectReason {
 }
 
 /** Why a stored document must not be shown (empty object = keep it). */
-export function rejectDoc(doc: { url: string; text: string; lang?: string; wordCount?: number; linkDensity?: number }): RejectReason {
+export function rejectDoc(doc: { url: string; text: string; lang?: string; wordCount?: number; linkDensity?: number; siteCard?: boolean }): RejectReason {
   const reason: RejectReason = {};
   if (isJunkUrl(doc.url)) reason.junk = true;
-  const words = doc.wordCount ?? doc.text.split(/\s+/).filter(Boolean).length;
-  if (words < CONFIG.quality.minWords || isLowQualityText(doc.text)) reason.lowQuality = true;
-  // Mostly link labels = a listing or index page, not an article.
-  if ((doc.linkDensity ?? 0) > CONFIG.quality.maxLinkDensity) reason.lowQuality = true;
+  // A site card is a deliberately minimal record for an allowlisted homepage,
+  // so length/link-density rules do not apply to it. Curated hosts get the
+  // same exemption: their homepages are link-heavy by design.
+  const curated = doc.siteCard || isFamousHost(hostnameOf(doc.url));
+  if (!doc.siteCard) {
+    const words = doc.wordCount ?? doc.text.split(/\s+/).filter(Boolean).length;
+    if (words < CONFIG.quality.minWords || isLowQualityText(doc.text)) reason.lowQuality = true;
+  }
+  if (!curated && (doc.linkDensity ?? 0) > CONFIG.quality.maxLinkDensity) reason.lowQuality = true;
   // Cheap check first: a declared non-Latin <html lang> is decisive.
   const lang = (doc.lang ?? "").toLowerCase();
   if (lang && !isLatinLanguageCode(lang) && CONFIG.language.blockedScripts.includes(scriptOfLangCode(lang))) {

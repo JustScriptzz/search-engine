@@ -5,6 +5,8 @@ export interface CrawledDoc {
   text: string;
   lang: string; // <html lang> when present, else ""
   linkDensity?: number; // share of text that was link labels (0..1)
+  siteCard?: boolean; // minimal "site card" for an allowlisted famous homepage
+  stub?: boolean; // allowlist entry whose page could not be fetched
   outlinks: string[];
   fetchedAt: string; // ISO
   contentHash: string; // sha256 of normalized text (near-duplicate guard)
