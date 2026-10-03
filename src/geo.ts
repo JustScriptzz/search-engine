@@ -80,6 +80,38 @@ const TLD_PREFS: Record<string, string[]> = {
   TN: ["tn"], DZ: ["dz"], SA: ["sa"], AE: ["ae"], QA: ["qa"], IL: ["il"],
 };
 
+// Country -> languages a local reader is most likely to want. A page served in
+// that language is boosted even when it lives on a .com domain, which is how
+// most publishers operate.
+const COUNTRY_LANGS: Record<string, string[]> = {
+  IT: ["it", "en"], DE: ["de", "en"], AT: ["de", "en"], CH: ["de", "fr", "it", "en"],
+  FR: ["fr", "en"], BE: ["fr", "nl", "en"], NL: ["nl", "en"], ES: ["es", "en"],
+  MX: ["es", "en"], AR: ["es", "en"], CL: ["es", "en"], CO: ["es", "en"],
+  PT: ["pt", "en"], BR: ["pt", "en"], PL: ["pl", "en"], CZ: ["cs", "en"],
+  SE: ["sv", "en"], NO: ["no", "en"], DK: ["da", "en"], FI: ["fi", "en"],
+  GR: ["el", "en"], TR: ["tr", "en"], JP: ["ja", "en"], KR: ["ko", "en"],
+  CN: ["zh", "en"], IN: ["en", "hi"], US: ["en"], GB: ["en", "cy"],
+  CA: ["en", "fr"], AU: ["en"], NZ: ["en"], IE: ["en", "ga"], ZA: ["en"],
+  NG: ["en"], KE: ["en", "sw"], IN2: [], EG: ["ar", "en"], SA: ["ar", "en"],
+  AE: ["ar", "en"], IL: ["he", "en"], QA: ["ar", "en"],
+};
+
+export function languagesForCountry(countryCode: string): string[] {
+  return COUNTRY_LANGS[countryCode] ?? [];
+}
+
+/** Boost a document written in the visitor's language, whatever its domain.
+ *  Primary language gets the full boost, secondary (usually English) half. */
+export function languageBoost(docLang: string, countryCode: string): number {
+  const wanted = languagesForCountry(countryCode);
+  if (wanted.length === 0) return 1;
+  const lang = (docLang ?? "").toLowerCase().split("-")[0];
+  if (!lang) return 1;
+  if (lang === wanted[0]) return CONFIG.geo.langBoost;
+  if (wanted.slice(1).includes(lang)) return 1 + (CONFIG.geo.langBoost - 1) / 2;
+  return 1;
+}
+
 export function tldOf(url: string): string {
   try {
     const host = new URL(url).hostname.toLowerCase();
@@ -93,7 +125,7 @@ export function tldOf(url: string): string {
   }
 }
 
-/** Multiplier applied to a result's BM25 score for this visitor's country. */
+/** Multiplier for a result URL serving this visitor's country. */
 export function countryBoost(url: string, countryCode: string): number {
   const prefs = TLD_PREFS[countryCode];
   if (!prefs) return 1;

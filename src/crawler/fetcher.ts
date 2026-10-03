@@ -28,8 +28,13 @@ export async function fetchHtml(url: string, opts: FetchOpts = {}): Promise<stri
     if (ct && !ct.includes("html") && !ct.includes("text")) return null;
 
     const buf = await res.arrayBuffer();
-    if (buf.byteLength > maxBytes) return null;
-    return decodeHtml(buf, ct);
+    // Truncate rather than reject: big pages (Wikipedia articles, W3C specs)
+    // are usually the most valuable ones, and our extraction is regex-based so
+    // a mid-tag cut is harmless. The hard ceiling still stops absurd payloads.
+    const hardCap = maxBytes * 2;
+    if (buf.byteLength > hardCap) return null;
+    const usable = buf.byteLength > maxBytes ? buf.slice(0, maxBytes) : buf;
+    return decodeHtml(usable, ct);
   } catch {
     return null;
   } finally {

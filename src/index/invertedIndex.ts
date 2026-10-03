@@ -144,8 +144,23 @@ export class InvertedIndex {
           wordCount: doc.wordCount,
           matchedTerms,
           queryTerms: unique.length,
+          lang: doc.lang ?? "",
         };
       });
+  }
+
+  /** Every host in the index, e.g. "youtube.com" -> true. Used to tell a user
+   *  that the site they searched for simply isn't in our crawl. */
+  hasHost(host: string): boolean {
+    const needle = host.toLowerCase().replace(/^www\./, "");
+    if (needle.includes(".")) {
+      for (const tokens of this.hostTerms.values()) {
+        if (tokens.has(needle.split(".")[0])) return true;
+      }
+      return false;
+    }
+    for (const tokens of this.hostTerms.values()) if (tokens.has(needle)) return true;
+    return false;
   }
 
   /** Drop a document and every posting that referenced it (used by `prune`). */

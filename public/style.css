@@ -211,6 +211,9 @@ main { flex: 1; width: 100%; max-width: 1080px; margin: 0 auto; padding: 1.5rem 
 .tag { border: 1px solid var(--line-2); border-radius: 999px; padding: .12rem .5rem; }
 .tag.rank { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
 
+.note-row { background: transparent; border-style: dashed; box-shadow: none; }
+.note-row .r-snip { color: var(--warn); }
+
 .more {
   width: 100%; margin-top: 1rem; padding: .85rem;
   background: var(--panel); border: 1px dashed var(--line-2); border-radius: var(--r-md);

@@ -1,6 +1,6 @@
 import { CONFIG } from "./config.ts";
 import { runAgent, type ChatTurn } from "./ai.ts";
-import { countryBoost, getClientIp, lookupCountry } from "./geo.ts";
+import { countryBoost, getClientIp, languageBoost, languagesForCountry, lookupCountry } from "./geo.ts";
 import { rejectDoc } from "./quality.ts";
 import { hasApiKey, keySource } from "./provider.ts";
 import { InvertedIndex } from "./index/invertedIndex.ts";
@@ -79,7 +79,10 @@ function runSearch(idx: InvertedIndex, opts: SearchOptions) {
       seen.add(doc.url);
       return true;
     })
-    .map((h) => ({ ...h, domain: domainOf(h.url), score: round(h.score * countryBoost(h.url, opts.countryCode)) }))
+    .map((h) => {
+      const boost = countryBoost(h.url, opts.countryCode) * languageBoost(h.lang, opts.countryCode);
+      return { ...h, domain: domainOf(h.url), score: round(h.score * boost) };
+    })
     .sort((a, b) => b.score - a.score);
 
   const counts = new Map<string, number>();
@@ -96,6 +99,16 @@ function runSearch(idx: InvertedIndex, opts: SearchOptions) {
     facets,
     total: filtered.length,
   };
+}
+
+/** "youtube" reads as a site, not a topic. If that site was never crawled we
+ *  say so instead of quietly returning pages that merely mention it. */
+function siteLookupNote(idx: InvertedIndex, query: string): string | null {
+  const q = query.toLowerCase().trim();
+  if (!q || /\s/.test(q)) return null;
+  if (/^(the|a|an|how|what|why|when|who|best|free|news|weather)$/.test(q)) return null;
+  if (idx.hasHost(q)) return null;
+  return `${q}.com is not in this crawl — the results below are pages that mention "${q}". Add it to the seed list (src/config.ts) to index the site itself.`;
 }
 
 function parseLimit(raw: string | null): number {
@@ -137,6 +150,24 @@ export function startServer(idx: InvertedIndex, port: number = CONFIG.server.por
             domain: domain ?? null,
             country: geo.country,
             countryCode: geo.countryCode,
+            countryLanguages: languagesForCountry(geo.countryCode),
+            note: domain ? null : siteLookupNote(idx, q),
+          },
+          { headers: cors },
+        );
+      }
+
+      // ---- API: where the visitor appears to be ----
+      if (url.pathname === "/api/geo") {
+        const ip = getClientIp(req);
+        const geo = await lookupCountry(ip);
+        return Response.json(
+          {
+            ip,
+            country: geo.country,
+            countryCode: geo.countryCode,
+            languages: languagesForCountry(geo.countryCode),
+            cached: geo.fromCache,
           },
           { headers: cors },
         );

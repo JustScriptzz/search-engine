@@ -179,11 +179,19 @@
       if (state.countryCode && state.countryCode !== "XX") {
         el.geo.textContent = ` · ${state.country}`;
       } else el.geo.textContent = "";
+      state.country = data.country ?? state.country;
       el.meta.textContent =
         `${data.count} result${data.count === 1 ? "" : "s"}${data.domain ? ` on ${data.domain}` : ""} in ${data.tookMs}ms` +
         (data.total > data.count ? ` · ${data.total} matched` : "");
       el.results.innerHTML = "";
       state.hits = data.hits;
+      if (data.note) {
+        const note = document.createElement("li");
+        note.className = "result note-row";
+        note.innerHTML = `<div></div><div><p class="r-snip"></p></div>`;
+        note.querySelector(".r-snip").textContent = data.note;
+        el.results.appendChild(note);
+      }
       if (!data.hits.length) {
         const li = document.createElement("li");
         li.className = "result";

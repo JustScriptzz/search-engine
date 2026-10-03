@@ -5,6 +5,8 @@ export interface ParsedPage {
   text: string;
   links: string[];
   lang: string;
+  /** Share of the extracted text that sat inside <a> tags (0..1). */
+  linkDensity: number;
 }
 
 export function parseHtml(html: string, baseUrl: string): ParsedPage {
@@ -28,28 +30,40 @@ export function parseHtml(html: string, baseUrl: string): ParsedPage {
     }
   }
 
-  const text = decodeEntities(
-    html
-      .replace(/<script[\s\S]*?<\/script>/gi, " ")
-      .replace(/<style[\s\S]*?<\/style>/gi, " ")
-      .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
-      .replace(/<nav[\s\S]*?<\/nav>/gi, " ")
-      .replace(/<header[\s\S]*?<\/header>/gi, " ")
-      .replace(/<footer[\s\S]*?<\/footer>/gi, " ")
-      .replace(/<aside[\s\S]*?<\/aside>/gi, " ")
-      .replace(/<form[\s\S]*?<\/form>/gi, " ")
-      .replace(/<[^>]+>/g, " "),
-  )
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, CONFIG.crawl.maxTextChars);
+  // Link density: how much of the visible text is link labels rather than
+  // prose. Article pages sit low; index/listing pages sit very high.
+  const stripped = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<nav[\s\S]*?<\/nav>/gi, " ")
+    .replace(/<header[\s\S]*?<\/header>/gi, " ")
+    .replace(/<footer[\s\S]*?<\/footer>/gi, " ")
+    .replace(/<aside[\s\S]*?<\/aside>/gi, " ")
+    .replace(/<form[\s\S]*?<\/form>/gi, " ");
+  let linkChars = 0;
+  stripped.replace(/<a\b[^>]*>([\s\S]*?)<\/a>/gi, (_m, inner: string) => {
+    linkChars += stripTags(inner).length;
+    return " ";
+  });
+
+  // Density is measured against the FULL text, before truncation, otherwise a
+  // capped article would always read as 100% links.
+  const fullText = decodeEntities(stripTags(stripped)).replace(/\s+/g, " ").trim();
+  const linkDensity = fullText.length > 0 ? Math.min(linkChars / fullText.length, 1) : 0;
+  const text = fullText.slice(0, CONFIG.crawl.maxTextChars);
 
   return {
     title,
     text,
     lang,
+    linkDensity,
     links: [...new Set(links)].slice(0, CONFIG.crawl.maxLinksPerPage),
   };
+}
+
+function stripTags(html: string): string {
+  return html.replace(/<[^>]+>/g, " ");
 }
 
 export function normalizeUrl(urlStr: string): string | null {

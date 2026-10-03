@@ -14,9 +14,12 @@ describe("quality gate", () => {
     expect(isJunkUrl("https://developer.mozilla.org/en-US/docs/Web")).toBe(false);
   });
 
-  test("drops account and legal pages", () => {
+  test("drops account, legal and listing pages", () => {
     expect(isJunkUrl("https://arstechnica.com/subscribe")).toBe(true);
     expect(isJunkUrl("https://example.com/privacy")).toBe(true);
+    expect(isJunkUrl("https://news.ycombinator.com/user?id=alice")).toBe(true);
+    expect(isJunkUrl("https://example.com/tag/rust/")).toBe(true);
+    expect(isJunkUrl("https://example.com/u/alice")).toBe(true);
   });
 
   test("keeps real content pages", () => {
@@ -42,13 +45,17 @@ describe("quality gate", () => {
     expect(rejectDoc({ url: "https://example.com/ru", text: "Поисковая система Википедия это сайт".repeat(4) }).language).toBe(true);
   });
 
-  test("accepts an English article", () => {
-    const doc = {
+  test("accepts a real article but rejects a short index page", () => {
+    const article = {
       url: "https://www.bbc.com/news/story",
       lang: "en",
-      text: "Global markets moved through the session today while leaders met in Geneva to discuss a new energy agreement covering imports, tariffs and long term supply contracts.",
+      wordCount: 640,
+      text: "Global markets moved through the session today while leaders met in Geneva to discuss a new energy agreement covering imports, tariffs and long term supply contracts across the region.",
     };
-    expect(rejectDoc(doc)).toEqual({});
+    expect(rejectDoc(article)).toEqual({});
+
+    const indexPage = { url: "https://news.ycombinator.com/news", lang: "en", wordCount: 30, text: "News Ask Show Jobs Comments Saved Past" };
+    expect(rejectDoc(indexPage).lowQuality).toBe(true);
   });
 
   test("rejects nav-only boilerplate and cookie walls", () => {

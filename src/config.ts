@@ -61,6 +61,13 @@ export const CONFIG = {
     "https://www.python.org",
     "https://doc.rust-lang.org/book/",
     "https://go.dev/doc/",
+    // Italy — so an Italian visitor gets real local coverage, not just a boost.
+    // Article URLs, not homepages: homepages are link farms and get pruned.
+    "https://it.wikipedia.org/wiki/Italia",
+    "https://it.wikipedia.org/wiki/Cucina_italiana",
+    "https://it.wikipedia.org/wiki/Campionato_di_Italia",
+    "https://www.ansa.it/scienza/index.html",
+    "https://www.corriere.it/cronache/index.shtml",
     // reference (deliberately a minority)
     "https://en.wikipedia.org/wiki/Search_engine",
     "https://www.britannica.com",
@@ -92,6 +99,13 @@ export const CONFIG = {
       "/privacy", "/terms", "/cookie", "/user-agreement", "/aboutads", "/newsletter",
       "/advertise", "/careers", "/press",
     ] as string[],
+    // Whole path segments that mean "profile or listing page", matched per
+    // segment so /user?id=x and /user/ are both caught.
+    blockedPathSegments: [
+      "user", "users", "u", "profile", "profiles", "author", "authors", "members",
+      "tag", "tags", "category", "categories", "feed", "rss", "sitemap",
+      "from", "item", "items", "comments", "thread", "submit", "drafts",
+    ] as string[],
   },
 
   userAgent: "MiniSearchBot/0.3 (+https://github.com/JustScriptzz/search-engine)",
@@ -108,6 +122,12 @@ export const CONFIG = {
     // built from repeated nav/link filler, is never shown.
     minDocChars: 80,
     maxShingleDupRatio: 0.35,
+    // Site index pages ("/news", "/jobs", "/ask") are short by nature and would
+    // otherwise win generic queries like "news". Articles are not.
+    minWords: 120,
+    // Pages whose text is mostly link labels (index/tag/listing pages) are not
+    // articles and must never outrank one.
+    maxLinkDensity: 0.45,
   },
 
   bm25: {
@@ -137,7 +157,10 @@ export const CONFIG = {
     timeoutMs: 700,
     cacheTtlMs: 6 * 60 * 60 * 1000,
     maxCacheEntries: 5000,
-    boost: 1.35,
+    // Multiplier for a .tld (or .com) that serves the visitor's country.
+    boost: 1.8,
+    // Extra multiplier when the page's own language matches the visitor's.
+    langBoost: 2.4,
   },
 
   ai: {

@@ -101,6 +101,7 @@ export async function crawl(
             title: parsed.title,
             text: parsed.text,
             lang: parsed.lang,
+            linkDensity: parsed.linkDensity,
             outlinks: parsed.links,
             fetchedAt: new Date().toISOString(),
             contentHash: hash(normalizeText(parsed.text)),

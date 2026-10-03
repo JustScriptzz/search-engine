@@ -15,7 +15,10 @@ export function isJunkUrl(urlStr: string): boolean {
   const host = u.hostname.replace(/^www\./, "");
   if (CONFIG.crawl.blockedHosts.some((h) => host === h || host.endsWith(`.${h}`))) return true;
   const path = u.pathname.toLowerCase();
-  return CONFIG.crawl.blockedPathPatterns.some((p) => path.startsWith(p) || path.includes(p));
+  if (CONFIG.crawl.blockedPathPatterns.some((p) => path.startsWith(p) || path.includes(p))) return true;
+  // Segment-wise match: /user, /user/, /tag/foo are all listing pages.
+  const segments = path.split("/").filter(Boolean);
+  return segments.some((seg) => CONFIG.crawl.blockedPathSegments.includes(seg.replace(/\.(html?|php|aspx?)$/, "")));
 }
 
 /** Pages with no real prose (cookie walls, "enable JavaScript", nav-only stubs). */
@@ -54,10 +57,13 @@ export interface RejectReason {
 }
 
 /** Why a stored document must not be shown (empty object = keep it). */
-export function rejectDoc(doc: { url: string; text: string; lang?: string }): RejectReason {
+export function rejectDoc(doc: { url: string; text: string; lang?: string; wordCount?: number; linkDensity?: number }): RejectReason {
   const reason: RejectReason = {};
   if (isJunkUrl(doc.url)) reason.junk = true;
-  if (isLowQualityText(doc.text)) reason.lowQuality = true;
+  const words = doc.wordCount ?? doc.text.split(/\s+/).filter(Boolean).length;
+  if (words < CONFIG.quality.minWords || isLowQualityText(doc.text)) reason.lowQuality = true;
+  // Mostly link labels = a listing or index page, not an article.
+  if ((doc.linkDensity ?? 0) > CONFIG.quality.maxLinkDensity) reason.lowQuality = true;
   // Cheap check first: a declared non-Latin <html lang> is decisive.
   const lang = (doc.lang ?? "").toLowerCase();
   if (lang && !isLatinLanguageCode(lang) && CONFIG.language.blockedScripts.includes(scriptOfLangCode(lang))) {
