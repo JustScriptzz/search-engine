@@ -3,6 +3,7 @@ import { runAgent, type ChatTurn } from "./ai.ts";
 import { authorityBoost, computeAuthority, isCuratedRoot } from "./authority.ts";
 import { buildOverview } from "./overview.ts";
 import { deepSearch } from "./deepsearch.ts";
+import { verticalBoost, type Vertical } from "./media.ts";
 import { countryBoost, getClientIp, languageBoost, languagesForCountry, lookupCountry } from "./geo.ts";
 import { FAMOUS_SITES } from "./famous.ts";
 import { rejectDoc } from "./quality.ts";
@@ -66,6 +67,8 @@ interface SearchOptions {
   domain?: string;
   /** Run multi-pass expansion; ?deep=0 forces a single BM25 pass. */
   deep?: boolean;
+  /** Vertical filter: text | image | video | short. */
+  vertical?: Vertical | null;
 }
 
 /** Multi-pass deep search, then the country/authority re-ranking and the
@@ -76,6 +79,7 @@ function runSearch(idx: InvertedIndex, opts: SearchOptions) {
   const authority = computeAuthority(idx);
   const deep = deepSearch(idx, opts.query, { limit: oversample, deep: opts.deep });
   const seen = new Set<string>();
+  const wanted = opts.vertical ?? null;
   const scored = deep.hits
     .filter((h) => {
       const doc = idx.docs.get(h.id);
@@ -87,15 +91,26 @@ function runSearch(idx: InvertedIndex, opts: SearchOptions) {
       return true;
     })
     .map((h) => {
+      const doc = idx.docs.get(h.id)!;
       const host = domainOf(h.url);
+      const media = doc.media ?? { type: "text" as const };
       const geo = countryBoost(h.url, opts.countryCode) * languageBoost(h.lang, opts.countryCode);
       // Popularity: link-graph authority, with a floor for allowlisted roots so
       // github.com always outranks github.blog.
       const pageAuthority = authority.score.get(host) ?? 0;
       const rank = Math.max(pageAuthority, isCuratedRoot(host, FAMOUS_HOST_SET) ? CONFIG.authority.curatedFloor : 0);
       const pop = 1 + CONFIG.authority.weight * Math.sqrt(rank);
-      return { ...h, domain: host, score: round(h.score * geo * pop), authority: round(rank) };
+      // Vertical: promote the requested kind, demote the rest rather than hide.
+      const vboost = verticalBoost(media.type, wanted);
+      return {
+        ...h,
+        domain: host,
+        media,
+        score: round(h.score * geo * pop * vboost),
+        authority: round(rank),
+      };
     })
+    .filter((h) => (wanted && wanted !== "text" ? h.media.type === wanted : true))
     .sort((a, b) => b.score - a.score);
 
   const counts = new Map<string, number>();
@@ -109,6 +124,7 @@ function runSearch(idx: InvertedIndex, opts: SearchOptions) {
 
   return {
     hits: filtered.slice(0, opts.limit).map(({ domain: _domain, authority: _a, ...h }) => h),
+    vertical: wanted,
     facets,
     total: filtered.length,
     deep: {
@@ -167,13 +183,16 @@ export function startServer(idx: InvertedIndex, port: number = CONFIG.server.por
           ? { country: override, countryCode: override, fromCache: false }
           : await lookupCountry(getClientIp(req));
         const t0 = Date.now();
-        const deepParam = url.searchParams.get("deep");
+const deepParam = url.searchParams.get("deep");
+        const vParam = (url.searchParams.get("type") ?? url.searchParams.get("vertical") ?? "").toLowerCase();
+        const vertical = (["text", "image", "video", "short"] as const).find((v) => v === vParam) ?? null;
         const { hits, facets, total, deep } = runSearch(idx, {
           query: q,
           limit,
           countryCode: geo.countryCode,
           domain,
           deep: deepParam === null ? undefined : deepParam !== "0",
+          vertical,
         });
         return Response.json(
           {

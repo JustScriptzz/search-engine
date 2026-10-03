@@ -1,4 +1,5 @@
 import { CONFIG } from "../config.ts";
+import { classify, type MediaInfo } from "../media.ts";
 
 export interface ParsedPage {
   title: string;
@@ -7,6 +8,8 @@ export interface ParsedPage {
   lang: string;
   /** Share of the extracted text that sat inside <a> tags (0..1). */
   linkDensity: number;
+  /** What this page is: article, image, video or short-form. */
+  media: MediaInfo;
 }
 
 export function parseHtml(html: string, baseUrl: string): ParsedPage {
@@ -71,6 +74,7 @@ export function parseHtml(html: string, baseUrl: string): ParsedPage {
     text,
     lang,
     linkDensity,
+    media: classify(decoded, baseUrl),
     links: [...new Set(links)].slice(0, CONFIG.crawl.maxLinksPerPage),
   };
 }

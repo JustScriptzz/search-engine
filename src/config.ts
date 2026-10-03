@@ -79,6 +79,14 @@ export const CONFIG = {
     // reference (deliberately a minority)
     "https://en.wikipedia.org/wiki/Search_engine",
     "https://www.britannica.com",
+    // concrete media pages so the Images / Videos / Shorts verticals have
+    // something to show (classification comes from page metadata)
+    "https://www.youtube.com/watch?v=aqz-KE-bpKQ", // Big Buck Bunny (CC)
+    "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+    "https://vimeo.com/76979871",
+    "https://commons.wikimedia.org/wiki/File:Earth_from_SLR-4.jpg",
+    "https://commons.wikimedia.org/wiki/File:The_Earth_seen_from_Apollo_17.jpg",
+    "https://www.nasa.gov/image-article/pale-blue-dot/",
     "https://example.com",
   ] as string[],
 
@@ -209,6 +217,14 @@ export const CONFIG = {
     boost: 1.8,
     // Extra multiplier when the page's own language matches the visitor's.
     langBoost: 2.4,
+  },
+
+verticals: {
+    // Vertical search (image / video / shorts) works off page metadata, not a
+    // third-party media API: og:type, og:image, og:video and shorts URL shapes.
+    boost: 1.9, // how much a matching vertical is promoted
+    penalty: 3.0, // how much a non-matching vertical is demoted
+    thumbMaxWidth: 640,
   },
 
   ai: {

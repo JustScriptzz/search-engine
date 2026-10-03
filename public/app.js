@@ -24,7 +24,7 @@
     "space exploration", "world news", "climate", "html elements",
   ];
 
-  const state = { hits: [], sel: -1, domain: "", limit: 10, country: "XX", history: [], busy: false, deep: true };
+  const state = { hits: [], sel: -1, domain: "", limit: 10, country: "XX", history: [], busy: false, deep: true, vertical: "text" };
 
   /* ---------------------------------------------------------- utilities */
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
@@ -80,6 +80,10 @@
   async function loadStats() {
     try {
       const s = await (await fetch("/api/stats")).json();
+      // Version stamp in the corner: "0.3.4" reads as "v0.3".
+      const parts = String(s.version ?? "0.0.0").split(".").filter((p) => /^\d+$/.test(p));
+      const v = $("#version");
+      if (v) v.textContent = `v${parts[0] ?? "0"}.${parts[1] ?? "0"}`;
       const t = `${s.docCount.toLocaleString()} docs`;
       el.stats.textContent = t;
       el.foot.textContent = `${s.name} ${s.version} · ${t} · ${s.termCount.toLocaleString()} terms`;
@@ -118,6 +122,26 @@
         <div class="r-meta"><span class="tag rank"></span><span class="tag"></span></div>
       </div>`;
     li.querySelector(".fav").textContent = (d[0] ?? "?");
+    // Media: thumbnail plus a badge for image/video/short-form results.
+    const media = h.media ?? { type: "text" };
+    li.dataset.vertical = media.type;
+    if (media.type !== "text") {
+      const badge = document.createElement("span");
+      badge.className = `vbadge ${media.type}`;
+      badge.textContent = media.type === "short" ? "Short" : media.type === "video" ? "Video" : "Image";
+      if (media.duration) badge.textContent += ` ${fmtTime(media.duration)}`;
+      li.querySelector(".r-meta").appendChild(badge);
+    }
+    if (media.image) {
+      const thumb = document.createElement("img");
+      thumb.className = "thumb";
+      thumb.loading = "lazy";
+      thumb.alt = "";
+      thumb.src = media.image;
+      thumb.addEventListener("error", () => thumb.remove());
+      li.insertBefore(thumb, li.firstChild);
+      li.classList.add("has-thumb");
+    }
     const a = li.querySelector(".r-title");
     a.href = h.url; a.textContent = h.title;
     const u = li.querySelector(".r-url");
@@ -130,6 +154,31 @@
     li.addEventListener("mouseenter", () => select(i));
     return li;
   }
+
+  function fmtTime(seconds) {
+    const s = Math.max(0, Math.floor(seconds || 0));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}` : `${m}:${String(sec).padStart(2, "0")}`;
+  }
+
+  function setVertical(v) {
+    state.vertical = v;
+    document.querySelectorAll(".vtab").forEach((b) => {
+      const on = b.dataset.vertical === v;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-selected", String(on));
+    });
+    document.body.dataset.vertical = v;
+  }
+
+  document.querySelectorAll(".vtab").forEach((b) =>
+    b.addEventListener("click", () => {
+      setVertical(b.dataset.vertical);
+      if (el.q.value.trim()) run(el.q.value.trim(), { reset: false });
+    }),
+  );
 
   function select(i) {
     state.sel = i;
@@ -172,6 +221,7 @@
     el.more.hidden = true;
 
     const params = new URLSearchParams({ q, limit: String(state.limit), deep: state.deep ? "1" : "0" });
+    if (state.vertical && state.vertical !== "text") params.set("type", state.vertical);
     if (state.domain) params.set("domain", state.domain);
     try {
       const res = await fetch(`/api/search?${params}`);

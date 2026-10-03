@@ -46,6 +46,13 @@
   <div class="pill-scroll" id="facets"></div>
 </div>
 
+<nav class="verticals" role="tablist" aria-label="Search type">
+  <button type="button" class="vtab on" data-vertical="text" aria-selected="true">All</button>
+  <button type="button" class="vtab" data-vertical="image" aria-selected="false">Images</button>
+  <button type="button" class="vtab" data-vertical="video" aria-selected="false">Videos</button>
+  <button type="button" class="vtab" data-vertical="short" aria-selected="false">Shorts</button>
+</nav>
+
 <main id="main">
   <section class="empty-state" id="empty">
     <h1>Everything here was fetched by this server.</h1>
@@ -101,6 +108,7 @@
 
 <footer class="foot">
   <span id="foot-stats"></span>
+  <span class="version" id="version" title="MiniSearch version">v0.3</span>
   <span class="dot-sep">·</span>
   <span>no cookies, no analytics, no external calls</span>
 </footer>
