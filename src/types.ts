@@ -17,6 +17,8 @@ export interface SearchHit {
   snippet: string;
   score: number;
   wordCount: number;
+  matchedTerms: number; // how many unique query terms this doc contains
+  queryTerms: number; // how many unique terms the query had
 }
 
 export interface IndexStats {

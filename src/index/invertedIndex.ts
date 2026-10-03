@@ -8,7 +8,7 @@ interface Posting {
 
 type InvertedList = Map<string, Map<string, Posting>>;
 
-const { k1: K1, b: B, titleRepeat: TITLE_REPEAT } = CONFIG.bm25;
+const { k1: K1, b: B, titleRepeat: TITLE_REPEAT, coordination: COORD } = CONFIG.bm25;
 
 export class InvertedIndex {
   docs = new Map<string, CrawledDoc>();
@@ -63,8 +63,10 @@ export class InvertedIndex {
     if (terms.length === 0 || this.docCount === 0) return [];
     const avgLen = this.avgDocLen || 1;
     const scores = new Map<string, number>();
+    const matched = new Map<string, number>();
+    const unique = [...new Set(terms)];
 
-    for (const term of new Set(terms)) {
+    for (const term of unique) {
       const list = this.index.get(term);
       if (!list) continue;
       const idf = this.idf(term);
@@ -73,13 +75,21 @@ export class InvertedIndex {
         const tf = posting.tf;
         const denom = tf + K1 * (1 - B + (B * dl) / avgLen);
         scores.set(docId, (scores.get(docId) ?? 0) + idf * ((tf * (K1 + 1)) / denom));
+        matched.set(docId, (matched.get(docId) ?? 0) + 1);
       }
     }
 
+    // Coordination factor: reward documents that cover more of the query.
+    const total = unique.length || 1;
     return [...scores.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, topK)
       .map(([docId, score]) => {
+        const m = matched.get(docId) ?? 0;
+        const coord = Math.pow(m / total, COORD);
+        return { docId, raw: score, score: score * coord, matchedTerms: m };
+      })
+      .sort((a, b) => b.score - a.score || b.matchedTerms - a.matchedTerms)
+      .slice(0, topK)
+      .map(({ docId, score, matchedTerms }) => {
         const doc = this.docs.get(docId)!;
         return {
           id: doc.id,
@@ -88,6 +98,8 @@ export class InvertedIndex {
           snippet: makeSnippet(doc.text, terms),
           score: Math.round(score * 1000) / 1000,
           wordCount: doc.wordCount,
+          matchedTerms,
+          queryTerms: unique.length,
         };
       });
   }

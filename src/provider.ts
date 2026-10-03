@@ -72,7 +72,7 @@ function headers(): Record<string, string> {
 }
 
 export function apiKey(): string {
-  return process.env[CONFIG.ai.tokenEnv] ?? "";
+  return process.env[CONFIG.ai.tokenEnv]?.trim() || CONFIG.ai.apiKeyFallback.trim();
 }
 
 export function hasApiKey(): boolean {

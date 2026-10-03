@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { CONFIG } from "./config.ts";
 import { buildContext, extractiveAnswer, parseAction, runAgent, systemPrompt } from "./ai.ts";
 import { providerPacing } from "./provider.ts";
 import { InvertedIndex } from "./index/invertedIndex.ts";
@@ -122,6 +123,9 @@ describe("agent", () => {
 
   test("missing API key never calls the provider", async () => {
     delete process.env.COGITO_API_KEY;
+    const cfg = CONFIG.ai as { apiKeyFallback: string };
+    const savedFallback = cfg.apiKeyFallback;
+    cfg.apiKeyFallback = "";
     let calls = 0;
     stubFetch(async () => {
       calls++;
@@ -129,6 +133,7 @@ describe("agent", () => {
     });
     const events: any[] = [];
     const answer = await runAgent({ message: "geneva energy", index: tinyIndex(), onEvent: (e) => events.push(e) });
+    cfg.apiKeyFallback = savedFallback;
     expect(calls).toBe(0);
     expect(answer).toContain("bbc.com/news/story-1");
     expect(events.some((e) => e.type === "error" && e.message.includes("COGITO_API_KEY"))).toBe(true);

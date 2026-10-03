@@ -45,12 +45,44 @@ function corsHeaders(): Record<string, string> {
   };
 }
 
-function searchHits(idx: InvertedIndex, query: string, limit: number, countryCode: string) {
-  return idx
-    .search(query, Math.min(limit * 3, CONFIG.ui.maxLimit * 3))
-    .map((h) => ({ ...h, score: round(h.score * countryBoost(h.url, countryCode)) }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
+function domainOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
+interface SearchOptions {
+  query: string;
+  limit: number;
+  countryCode: string;
+  /** Restrict results to one registrable-ish domain, e.g. "bbc.com". */
+  domain?: string;
+}
+
+/** BM25 hits with the visitor's country boost, plus domain facets. */
+function runSearch(idx: InvertedIndex, opts: SearchOptions) {
+  const oversample = Math.min(Math.max(opts.limit * 4, 40), 200);
+  const scored = idx
+    .search(opts.query, oversample)
+    .map((h) => ({ ...h, domain: domainOf(h.url), score: round(h.score * countryBoost(h.url, opts.countryCode)) }))
+    .sort((a, b) => b.score - a.score);
+
+  const counts = new Map<string, number>();
+  for (const h of scored) counts.set(h.domain, (counts.get(h.domain) ?? 0) + 1);
+  const facets = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 10)
+    .map(([domain, count]) => ({ domain, count }));
+
+  const filtered = opts.domain ? scored.filter((h) => h.domain === opts.domain || h.domain.endsWith(`.${opts.domain}`)) : scored;
+
+  return {
+    hits: filtered.slice(0, opts.limit).map(({ domain: _domain, ...h }) => h),
+    facets,
+    total: filtered.length,
+  };
 }
 
 function parseLimit(raw: string | null): number {
@@ -74,18 +106,22 @@ export function startServer(idx: InvertedIndex, port: number = CONFIG.server.por
       if (url.pathname === "/api/search") {
         const q = url.searchParams.get("q") ?? "";
         const limit = parseLimit(url.searchParams.get("limit"));
+        const domain = (url.searchParams.get("domain") ?? "").trim().toLowerCase() || undefined;
         const override = (url.searchParams.get("country") ?? "").toUpperCase();
         const geo = override
           ? { country: override, countryCode: override, fromCache: false }
           : await lookupCountry(getClientIp(req));
         const t0 = Date.now();
-        const hits = searchHits(idx, q, limit, geo.countryCode);
+        const { hits, facets, total } = runSearch(idx, { query: q, limit, countryCode: geo.countryCode, domain });
         return Response.json(
           {
             query: q,
             count: hits.length,
+            total,
             tookMs: Date.now() - t0,
             hits,
+            facets,
+            domain: domain ?? null,
             country: geo.country,
             countryCode: geo.countryCode,
           },

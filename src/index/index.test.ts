@@ -47,6 +47,16 @@ describe("index + BM25", () => {
     expect(idx.search("ownership", 10)[0].id).toBe("title");
   });
 
+  test("coordination beats a single repeated term", () => {
+    const idx = new InvertedIndex();
+    // spammy doc: repeats one query term many times, never mentions the other
+    idx.addDocument(doc({ id: "spam", contentHash: "s", title: "Release", text: "standards ".repeat(40) + "autonomous vehicles law".split(" ").join(" ") }));
+    idx.addDocument(doc({ id: "good", contentHash: "g", title: "Web standards", text: "The web standards group publishes guidance for developers building on the open web platform." }));
+    const hits = idx.search("web standards", 5);
+    expect(hits[0].id).toBe("good");
+    expect(hits[0].matchedTerms).toBe(2);
+  });
+
   test("dedups identical content", () => {
     const idx = new InvertedIndex();
     const base = { url: "https://a.test/", title: "Hi", text: "unique content words here hello world", wordCount: 5 };

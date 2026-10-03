@@ -60,11 +60,33 @@ curl -N -X POST localhost:3000/api/chat -H 'content-type: application/json' \
   `MINISEARCH_TOOL {"name":…,"args":…}` and we execute it ourselves. Native
   `tool_calls` are still honoured if a provider ever sends them —
   flip `ai.nativeTools` in `src/config.ts`.
+- Credentials: `.env` `COGITO_API_KEY` wins; `ai.apiKeyFallback` in
+  `src/config.ts` is the last resort so a fresh clone answers questions out of
+  the box. **Move the key out of the config file into `.env` once you deploy.**
 - Resilience: model-slug caching, 400ms pacing, retry with backoff on 5xx,
   auth errors never retried, SSE heartbeat + 240s idle timeout, and a
   deterministic **extractive fallback** so the UI always answers.
 
 Measured: tool call → cited answer in ~2s.
+
+## Ranking
+
+BM25 (`k1=1.2`, `b=0.75`) with the title repeated twice in the term stream, plus
+a **query-term coordination factor**: score × `(matched_terms / query_terms)^1.6`.
+That stops a page that repeats one term 40 times from outranking a page that
+covers the whole query. The UI shows coverage per result (`2/2 terms`).
+
+Crawl quality: `Accept-Language` + charset-correct decoding, script detection
+(dropping non-Latin pages), robots.txt, per-host politeness, content dedup, and
+a junk-link filter (social/video/ad hosts, `/subscribe`, `/privacy`, …).
+
+## UI
+
+One page, no framework, no third-party requests:
+sticky search bar with `/` shortcut, `↑ ↓ j k` result navigation, `Enter` to
+open, domain facet pills from the API, term highlighting, dark/light theme with
+a persisted choice, recent searches in `localStorage`, and a slide-over
+MiniSearch AI chat that streams tool calls and citations.
 
 ## Country tuning
 

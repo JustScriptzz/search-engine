@@ -109,7 +109,7 @@ export async function crawl(
             crawled++;
             onPage?.(doc, crawled);
           }
-          let links = parsed.links;
+          let links = parsed.links.filter((l) => !isJunkUrl(l));
           if (opts.sameHostOnly) {
             links = links.filter((l) => {
               try {
@@ -140,6 +140,20 @@ export async function crawl(
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Drop social/video/ad and account-wall links before they enter the frontier. */
+export function isJunkUrl(urlStr: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(urlStr);
+  } catch {
+    return true;
+  }
+  const host = u.hostname.replace(/^www\./, "");
+  if (CONFIG.crawl.blockedHosts.some((h) => host === h || host.endsWith(`.${h}`))) return true;
+  const path = u.pathname.toLowerCase();
+  return CONFIG.crawl.blockedPathPatterns.some((p) => path.startsWith(p) || path.includes(p));
 }
 
 function hash(s: string): string {

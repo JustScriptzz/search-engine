@@ -16,19 +16,50 @@ export const CONFIG = {
   },
 
   // English-language, non-Wikipedia sources.
+  // English-language, deliberately mixed: world news, tech, primary docs,
+  // science, standards, discussion. Wikipedia is a couple of entries out of
+  // thirty, not the corpus.
   seeds: [
-    "https://example.com",
-    "https://developer.mozilla.org/en-US/docs/Web",
-    "https://news.ycombinator.com",
+    // world + general news
+    "https://www.bbc.com/news",
+    "https://www.reuters.com",
+    "https://apnews.com",
     "https://text.npr.org",
+    "https://www.aljazeera.com",
+    "https://www.theguardian.com/international",
+    "https://www.dw.com/en/top-stories/s-9097",
+    "https://www.france24.com/en/",
+    "https://www3.nhk.or.jp/nhnews/en/",
+    "https://www.cbc.ca/news",
+    "https://www.thehindu.com/news/international/",
+    "https://www.scmp.com/news",
+    // tech + industry
     "https://arstechnica.com",
     "https://www.theverge.com",
     "https://techcrunch.com",
-    "https://news.mit.edu",
-    "https://stackoverflow.com/questions",
+    "https://news.ycombinator.com",
     "https://github.com/explore",
-    "https://www.bbc.com/news",
-    "https://www.reuters.com",
+    "https://stackoverflow.com/questions",
+    "https://dev.to",
+    "https://css-tricks.com",
+    "https://www.smashingmagazine.com",
+    // primary documentation + standards
+    "https://developer.mozilla.org/en-US/docs/Web",
+    "https://html.spec.whatwg.org/multipage/",
+    "https://www.w3.org/TR/",
+    "https://caniuse.com",
+    "https://webkit.org",
+    "https://developer.chrome.com/docs/devtools",
+    "https://www.rfc-editor.org",
+    // science
+    "https://www.nasa.gov",
+    "https://phys.org",
+    "https://www.nature.com/news",
+    "https://arstechnica.com/science",
+    // reference (deliberately a minority)
+    "https://en.wikipedia.org/wiki/Search_engine",
+    "https://www.britannica.com",
+    "https://example.com",
   ] as string[],
 
   crawl: {
@@ -42,6 +73,18 @@ export const CONFIG = {
     maxLinksPerPage: 200,
     maxOutlinksQueued: 500,
     sameHostOnly: false,
+    // Link-shaped noise we never want in the index.
+    blockedHosts: [
+      "youtube.com", "youtu.be", "x.com", "twitter.com", "facebook.com", "instagram.com",
+      "linkedin.com", "tiktok.com", "pinterest.com", "reddit.com", "discord.com",
+      "doubleclick.net", "googlesyndication.com", "adservice.google.com",
+      "aboutads.info", "adsrvr.org", "amazon-adsystem.com",
+    ] as string[],
+    blockedPathPatterns: [
+      "/subscribe", "/login", "/signin", "/sign-in", "/register", "/account",
+      "/privacy", "/terms", "/cookie", "/user-agreement", "/aboutads", "/newsletter",
+      "/advertise", "/careers", "/press",
+    ] as string[],
   },
 
   userAgent: "MiniSearchBot/0.3 (+https://github.com/JustScriptzz/search-engine)",
@@ -53,7 +96,14 @@ export const CONFIG = {
     maxBlockedRatio: 0.2,
   },
 
-  bm25: { k1: 1.2, b: 0.75, titleRepeat: 2 },
+  bm25: {
+    k1: 1.2,
+    b: 0.75,
+    titleRepeat: 2,
+    // Query-term coordination: multiply score by (matched/total)^exponent so a
+    // page matching every query term beats one that repeats a single term.
+    coordination: 1.6,
+  },
 
   tokenizer: {
     minLen: 2,
@@ -75,6 +125,9 @@ export const CONFIG = {
     provider: "cogito",
     baseUrl: "https://api.cogito.decart.ai/v1",
     tokenEnv: "COGITO_API_KEY",
+    // Last-resort fallback so a fresh clone works with no .env setup.
+    // A .env COGITO_API_KEY (or panel env) always wins over this.
+    apiKeyFallback: "cog-live-CBUnsHwHzmrTLhpLrzWWiDIacFPDFWcQxaqZ",
     model: "gpt-oss:ultra-fast",
     // First slug from GET /v1/models that matches wins; gpt-oss-120b is served
     // under different ids depending on the account tier.

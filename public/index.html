@@ -4,59 +4,102 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="color-scheme" content="dark light" />
-<title>MiniSearch</title>
+<title>MiniSearch — search the crawl</title>
+<meta name="description" content="A small web search engine: crawl, BM25 index, and an AI agent that cites what it read." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='14' cy='14' r='9' fill='none' stroke='%23c9f24d' stroke-width='4'/%3E%3Cpath d='M21 21l7 7' stroke='%23c9f24d' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E" />
 <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-<div class="bg" aria-hidden="true"></div>
+<a class="skip" href="#main">Skip to results</a>
 
-<header class="top">
-  <a class="brand" href="/">
-    <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="14" cy="14" r="9" fill="none" stroke="currentColor" stroke-width="3"/><path d="M21 21l7 7" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
-    <span>Mini<b>Search</b></span>
+<div class="glow" aria-hidden="true"></div>
+
+<header class="bar">
+  <a class="brand" href="/" aria-label="MiniSearch home">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="14" cy="14" r="9" fill="none" stroke="currentColor" stroke-width="3.2"/><path d="M21 21l7 7" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/></svg>
+    <span class="brand-name">Mini<b>Search</b></span>
   </a>
-  <div class="chips">
-    <span class="chip" id="stats">connecting…</span>
-    <span class="chip geo" id="country" hidden></span>
+
+  <form class="omni" id="omni" role="search" autocomplete="off">
+    <svg class="omni-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16.5 16.5L21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <input id="q" type="search" placeholder="Search the crawl…" aria-label="Search query" spellcheck="false" enterkeyhint="search" />
+    <button type="button" id="clear" class="clear" aria-label="Clear search" hidden>&times;</button>
+    <kbd class="hint-key" aria-hidden="true">/</kbd>
+  </form>
+
+  <div class="bar-right">
+    <span class="chip" id="stats" title="Index size">…</span>
+    <button type="button" id="theme" class="icon-btn" aria-label="Toggle colour theme" title="Toggle theme">
+      <svg viewBox="0 0 24 24" aria-hidden="true" class="ico-sun"><circle cx="12" cy="12" r="4.5" fill="currentColor"/><g stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5.2 5.2l1.7 1.7M17.1 17.1l1.7 1.7M18.8 5.2l-1.7 1.7M6.9 17.1l-1.7 1.7"/></g></svg>
+      <svg viewBox="0 0 24 24" aria-hidden="true" class="ico-moon"><path d="M20 14.5A8.2 8.2 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z" fill="currentColor"/></svg>
+    </button>
+    <button type="button" id="ai-open" class="ai-btn">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.9 4.6L18.5 9.5 13.9 11.4 12 16l-1.9-4.6L5.5 9.5l4.6-1.9z" fill="currentColor"/><path d="M18 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z" fill="currentColor" opacity=".65"/></svg>
+      <span>Ask AI</span>
+    </button>
   </div>
 </header>
 
-<main class="shell">
-  <section class="intro" id="intro">
-    <h1>Find it in <em>the crawl</em>.</h1>
-    <p>BM25-ranked results over pages this engine fetched itself. Or ask <span class="ai-name">MiniSearch AI</span>, which searches the same index and cites what it read.</p>
+<div class="filters" id="filters" hidden>
+  <span class="filters-label">Domain</span>
+  <button type="button" class="pill on" data-domain="">All</button>
+  <div class="pill-scroll" id="facets"></div>
+</div>
+
+<main id="main">
+  <section class="empty-state" id="empty">
+    <h1>Everything here was fetched by this server.</h1>
+    <p>No third-party search API, no tracking cookies. Results come from a BM25 index built by our own crawler — news, docs, science and standards, ranked with term-frequency scoring and boosted toward your region.</p>
+    <div class="suggest" id="suggest"></div>
   </section>
 
-  <div class="searchbar">
-    <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16.5 16.5L21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-    <input id="q" type="search" placeholder="Search the index…" aria-label="Search query" spellcheck="false" />
-    <kbd>/</kbd>
-  </div>
-
-  <nav class="modes" role="tablist">
-    <button class="mode on" data-mode="search" role="tab" aria-selected="true">Search</button>
-    <button class="mode" data-mode="ai" role="tab" aria-selected="false">Ask MiniSearch AI</button>
-  </nav>
-
-  <section id="search-view">
-    <p id="meta" class="meta" aria-live="polite"></p>
-    <div id="results"></div>
-  </section>
-
-  <section id="ai-view" hidden>
-    <div id="thread" class="thread"></div>
-    <form id="ask" class="ask">
-      <textarea id="ask-q" rows="1" placeholder="Ask a question — the agent searches the index and cites sources…" aria-label="Ask MiniSearch AI"></textarea>
-      <button type="submit" class="send" aria-label="Send">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20l18-8L3 4l4 8-4 8z" fill="currentColor"/></svg>
-      </button>
-    </form>
-    <p class="hint" id="ai-hint">agent: loading…</p>
-    <script>window.CONFIG_NAME = "MiniSearch AI";</script>
+  <section id="results-wrap" hidden>
+    <div class="results-head">
+      <p class="meta" id="meta" aria-live="polite"></p>
+      <div class="sortnote">ranked by BM25<span id="geo-note"></span></div>
+    </div>
+    <ol class="results" id="results"></ol>
+    <button type="button" class="more" id="more" hidden>Show more</button>
   </section>
 </main>
 
-<footer class="foot"><span id="foot-stats"></span> · local-first, no cookies</footer>
+<!-- AI drawer -->
+<div class="drawer" id="drawer" aria-hidden="true">
+  <div class="drawer-head">
+    <div>
+      <h2>MiniSearch AI</h2>
+      <p class="drawer-sub" id="ai-sub">agent: …</p>
+    </div>
+    <button type="button" id="ai-close" class="icon-btn" aria-label="Close assistant">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+  <div class="thread" id="thread">
+    <div class="msg bot intro-msg">
+      <div class="msg-head"><span class="dot" aria-hidden="true"></span>MiniSearch AI</div>
+      <p>Ask me anything about the crawl. I search the index first, read the promising pages, and cite what I actually used.</p>
+      <div class="chips-row">
+        <button type="button" class="chip-btn" data-q="What is this index about?">What is this index about?</button>
+        <button type="button" class="chip-btn" data-q="Summarise the top results for HTML standards">HTML standards</button>
+        <button type="button" class="chip-btn" data-q="How does BM25 ranking work?">How does BM25 work?</button>
+      </div>
+    </div>
+  </div>
+  <form class="composer" id="ask">
+    <textarea id="ask-q" rows="1" placeholder="Ask a question…" aria-label="Ask MiniSearch AI"></textarea>
+    <button type="submit" class="send" aria-label="Send">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20l18-8L3 4l4 8-4 8z" fill="currentColor"/></svg>
+    </button>
+  </form>
+</div>
+<div class="scrim" id="scrim" hidden></div>
+
+<footer class="foot">
+  <span id="foot-stats"></span>
+  <span class="dot-sep">·</span>
+  <span>no cookies, no analytics, no external calls</span>
+</footer>
+
 <script src="/app.js"></script>
 </body>
 </html>
