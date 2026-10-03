@@ -70,6 +70,20 @@ function headers(key = apiKey()): Record<string, string> {
   return h;
 }
 
+/** Pull a well-formed key out of whatever the environment actually holds:
+ *  stray quotes, CRLF, a pasted "Bearer cog-live-…" prefix or trailing
+ *  whitespace are all recoverable. Returns "" when nothing usable is present. */
+export function sanitizeKey(raw: string | undefined): string {
+  if (!raw) return "";
+  const m = /((?:cog|sk|pk)-[A-Za-z0-9_-]{6,})/.exec(raw.replace(/[\r\n\t"']/g, " "));
+  if (!m) return "";
+  const key = m[1];
+  // Reject obvious placeholders copied from an example file.
+  if (/^(.)\1+$/.test(key.slice(key.indexOf("-") + 1))) return "";
+  if (/(x{4,}|your|changeme|example|placeholder|replace)/i.test(key)) return "";
+  return key;
+}
+
 export function apiKey(): string {
   return keyCandidates()[0] ?? "";
 }
@@ -79,11 +93,19 @@ export function apiKey(): string {
  *  leaving the agent permanently broken by a stale/typo'd .env. */
 export function keyCandidates(): string[] {
   const out: string[] = [];
-  const fromEnv = process.env[CONFIG.ai.tokenEnv]?.trim();
-  const fallback = CONFIG.ai.apiKeyFallback.trim();
-  if (fromEnv) out.push(fromEnv);
-  if (fallback && !out.includes(fallback)) out.push(fallback);
+  for (const raw of [process.env[CONFIG.ai.tokenEnv], CONFIG.ai.apiKeyFallback]) {
+    const key = sanitizeKey(raw);
+    if (key && !out.includes(key)) out.push(key);
+  }
   return out;
+}
+
+/** Which credential would be used first — surfaced by /api/stats for debugging.
+ *  Never returns the key itself. */
+export function keySource(): "env" | "config" | "none" {
+  if (sanitizeKey(process.env[CONFIG.ai.tokenEnv])) return "env";
+  if (sanitizeKey(CONFIG.ai.apiKeyFallback)) return "config";
+  return "none";
 }
 
 export function hasApiKey(): boolean {

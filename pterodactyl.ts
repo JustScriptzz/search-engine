@@ -12,10 +12,12 @@ const port = Number.isFinite(parsed) ? parsed : CONFIG.server.port;
 
 const index = await loadIndex();
 const server = startServer(index, port);
-const { hasApiKey } = await import("./src/provider.ts");
+const { hasApiKey, keySource } = await import("./src/provider.ts");
 
 console.log(`${CONFIG.name} listening on port ${server.port} (docs=${index.docCount})`);
 console.log(`  UI      /`);
 console.log(`  search  /api/search?q=hello`);
 console.log(`  stats   /api/stats`);
-console.log(`  agent   POST /api/chat {"message":"..."} — ${hasApiKey() ? "ready" : "no credentials, index-only answers"}`);
+console.log(
+  `  agent   POST /api/chat {"message":"..."} — ${hasApiKey() ? `ready (key from ${keySource()})` : "no credentials, index-only answers"}`,
+);

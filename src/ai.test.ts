@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { CONFIG } from "./config.ts";
 import { buildContext, extractiveAnswer, parseAction, runAgent, systemPrompt } from "./ai.ts";
-import { providerPacing } from "./provider.ts";
+import { keyCandidates, keySource, providerPacing, sanitizeKey } from "./provider.ts";
 import { InvertedIndex } from "./index/invertedIndex.ts";
 
 const realFetch = globalThis.fetch;
@@ -137,6 +137,46 @@ describe("agent", () => {
     expect(calls).toBe(0);
     expect(answer).toContain("bbc.com/news/story-1");
     expect(events.some((e) => e.type === "error" && e.message.includes("COGITO_API_KEY"))).toBe(true);
+  });
+
+  test("keys are sanitised and ranked env-first, config second", () => {
+    const cfg = CONFIG.ai as { apiKeyFallback: string };
+    const saved = cfg.apiKeyFallback;
+    process.env.COGITO_API_KEY = '  "cog-live-ENVKEY123"  \r\n';
+    cfg.apiKeyFallback = "cog-live-CONFIGKEY456";
+    expect(sanitizeKey(process.env.COGITO_API_KEY)).toBe("cog-live-ENVKEY123");
+    expect(keyCandidates()).toEqual(["cog-live-ENVKEY123", "cog-live-CONFIGKEY456"]);
+    expect(keySource()).toBe("env");
+    delete process.env.COGITO_API_KEY;
+    expect(keySource()).toBe("config");
+    cfg.apiKeyFallback = saved;
+  });
+
+  test("a placeholder key is ignored, not sent to the provider", () => {
+    expect(sanitizeKey("cog-live-xxxxxxxxxxxxxxxxxxxx")).toBe("");
+    expect(sanitizeKey("your-key-here")).toBe("");
+    expect(sanitizeKey(undefined)).toBe("");
+  });
+
+  test("a 401 on the env key falls through to the config key", async () => {
+    const cfg = CONFIG.ai as { apiKeyFallback: string };
+    const saved = cfg.apiKeyFallback;
+    process.env.COGITO_API_KEY = "cog-live-BADKEY000";
+    cfg.apiKeyFallback = "cog-live-GOODKEY111";
+    const seen: string[] = [];
+    stubFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/models")) return new Response(JSON.stringify({ data: [{ id: "gpt-oss:ultra-fast" }] }));
+      const auth = (init?.headers as Record<string, string>)?.authorization ?? "";
+      seen.push(auth);
+      if (auth.includes("BADKEY")) return new Response("bad key", { status: 401 });
+      return new Response(JSON.stringify({ choices: [{ message: { content: "ok from second key" } }] }), {
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const answer = await runAgent({ message: "hi", index: tinyIndex() });
+    cfg.apiKeyFallback = saved;
+    expect(answer).toBe("ok from second key");
+    expect(seen.some((a) => a.includes("GOODKEY"))).toBe(true);
   });
 
   test("extractive answer lists sources when the index has nothing", () => {

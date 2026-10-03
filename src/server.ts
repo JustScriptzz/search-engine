@@ -2,7 +2,7 @@ import { CONFIG } from "./config.ts";
 import { runAgent, type ChatTurn } from "./ai.ts";
 import { countryBoost, getClientIp, lookupCountry } from "./geo.ts";
 import { rejectDoc } from "./quality.ts";
-import { hasApiKey } from "./provider.ts";
+import { hasApiKey, keySource } from "./provider.ts";
 import { InvertedIndex } from "./index/invertedIndex.ts";
 
 export const INDEX_PATH = CONFIG.server.indexPath;
@@ -153,6 +153,7 @@ export function startServer(idx: InvertedIndex, port: number = CONFIG.server.por
             ai: {
               // Deliberately opaque: the UI never advertises the model or vendor.
               ready: hasApiKey(),
+              keySource: keySource(),
               tools: ["search_index", "read_page", "index_stats"],
             },
           },
