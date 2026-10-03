@@ -1,88 +1,12 @@
-// Allowlist of famous sites, plus the entry URLs worth indexing for each.
-// Two jobs:
-//  1. discovery seeds for the Common Crawl-backed `discover` command
-//  2. "site cards": homepages of these hosts are link farms with almost no
-//     text, so instead of dropping them we index a minimal card (title +
-//     description). That way searching "google" returns google.com itself
-//     rather than pages that merely mention it.
-export interface FamousSite {
-  name: string;
-  url: string;
-}
+﻿
+import { CONFIG } from "./config.ts";
+import { FAMOUS_SITES, type FamousSite } from "./famousSites.ts";
 
-export const FAMOUS_SITES: FamousSite[] = [
-  // search & tech
-  { name: "Google", url: "https://www.google.com" },
-  { name: "Bing", url: "https://www.bing.com" },
-  { name: "Wikipedia", url: "https://en.wikipedia.org/wiki/Main_Page" },
-  { name: "GitHub", url: "https://github.com" },
-  { name: "Stack Overflow", url: "https://stackoverflow.com" },
-  { name: "Hacker News", url: "https://news.ycombinator.com" },
-  { name: "MDN", url: "https://developer.mozilla.org" },
-  { name: "Stack Overflow Blog", url: "https://stackoverflow.blog" },
-  { name: "Cloudflare", url: "https://blog.cloudflare.com" },
-  { name: "Netflix Tech", url: "https://netflixtechblog.com" },
-  { name: "Amazon Web Services", url: "https://aws.amazon.com/blogs/" },
-  { name: "Kubernetes", url: "https://kubernetes.io/blog/" },
-  { name: "Rust", url: "https://blog.rust-lang.org" },
-  { name: "Python", url: "https://blog.python.org" },
-  { name: "Node.js", url: "https://nodejs.org/en/blog" },
-  { name: "React", url: "https://react.dev/blog" },
-  { name: "Apple Newsroom", url: "https://www.apple.com/newsroom/" },
-  { name: "Microsoft News", url: "https://blogs.microsoft.com/blog/" },
-  { name: "Meta Engineering", url: "https://engineering.fb.com" },
-  { name: "OpenAI", url: "https://openai.com/news/" },
-  // news
-  { name: "BBC News", url: "https://www.bbc.com/news" },
-  { name: "Reuters", url: "https://www.reuters.com" },
-  { name: "Associated Press", url: "https://apnews.com" },
-  { name: "NPR", url: "https://www.npr.org" },
-  { name: "The Guardian", url: "https://www.theguardian.com/international" },
-  { name: "Al Jazeera", url: "https://www.aljazeera.com" },
-  { name: "CNN", url: "https://edition.cnn.com" },
-  { name: "NBC News", url: "https://www.nbcnews.com" },
-  { name: "CBS News", url: "https://www.cbsnews.com" },
-  { name: "ABC News", url: "https://abcnews.go.com" },
-  { name: "Sky News", url: "https://news.sky.com" },
-  { name: "France 24", url: "https://www.france24.com/en/" },
-  { name: "Deutsche Welle", url: "https://www.dw.com/en/top-stories/s-9097" },
-  { name: "NHK", url: "https://www3.nhk.or.jp/nhnews/en/" },
-  { name: "CBC", url: "https://www.cbc.ca/news" },
-  { name: "Ars Technica", url: "https://arstechnica.com" },
-  { name: "The Verge", url: "https://www.theverge.com" },
-  { name: "TechCrunch", url: "https://techcrunch.com" },
-  { name: "Wired", url: "https://www.wired.com" },
-  { name: "Engadget", url: "https://www.engadget.com" },
-  { name: "Vice", url: "https://www.vice.com/en" },
-  { name: "Politico", url: "https://www.politico.com" },
-  { name: "Axios", url: "https://www.axios.com" },
-  { name: "The Atlantic", url: "https://www.theatlantic.com" },
-  // science & nature
-  { name: "NASA", url: "https://www.nasa.gov" },
-  { name: "ESA", url: "https://www.esa.int" },
-  { name: "Nature", url: "https://www.nature.com/news" },
-  { name: "Science Magazine", url: "https://www.science.org" },
-  { name: "Phys.org", url: "https://phys.org" },
-  { name: "Quanta", url: "https://www.quantamagazine.org" },
-  { name: "Smithsonian", url: "https://www.smithsonianmag.com" },
-  { name: "NIH", url: "https://www.nih.gov" },
-  // reference & misc
-  { name: "Britannica", url: "https://www.britannica.com" },
-  { name: "Merriam-Webster", url: "https://www.merriam-webster.com" },
-  { name: "Wolfram Alpha", url: "https://www.wolframalpha.com" },
-  { name: "Khan Academy", url: "https://www.khanacademy.org" },
-  { name: "Coursera", url: "https://www.coursera.org" },
-  { name: "MIT OpenCourseWare", url: "https://ocw.mit.edu" },
-  { name: "Project Gutenberg", url: "https://www.gutenberg.org" },
-  { name: "Internet Archive", url: "https://archive.org" },
-  { name: "Library of Congress", url: "https://www.loc.gov" },
-  // Italy
-  { name: "ANSA", url: "https://www.ansa.it" },
-  { name: "Corriere della Sera", url: "https://www.corriere.it" },
-  { name: "La Repubblica", url: "https://www.repubblica.it" },
-  { name: "Rai", url: "https://www.rainews.it" },
-  { name: "Treccani", url: "https://www.treccani.it/enciclopedia/" },
-];
+// The site data lives in its own leaf module: config.ts needs the allowlist and
+// this module needs CONFIG, so keeping them together would make the two import
+// each other in a cycle and blow up depending on which one loads first.
+export { FAMOUS_SITES };
+export type { FamousSite };
 
 /** Hosts (and their subdomains) that get the site-card treatment. */
 const FAMOUS_HOSTS = new Set<string>();
@@ -103,6 +27,39 @@ export function isFamousHost(hostname: string): boolean {
   const host = hostname.replace(/^www\./, "").toLowerCase();
   if (FAMOUS_HOSTS.has(host)) return true;
   for (const known of FAMOUS_HOSTS) {
+    if (host.endsWith(`.${known}`)) return true;
+  }
+  return false;
+}
+
+/** Hosts we chose on purpose: the seed list plus the allowlist, including their
+ *  subdomains. Anything else reached us through Common Crawl or certificate
+ *  transparency, which is where the link-farm spam comes from.
+ *  Built lazily: config.ts imports this module, so CONFIG is not ready yet at
+ *  module-evaluation time. */
+let trustedHosts: Set<string> | null = null;
+
+function trustedHostSet(): Set<string> {
+  if (trustedHosts) return trustedHosts;
+  const set = new Set<string>();
+  for (const u of CONFIG.seeds) {
+    try {
+      set.add(new URL(u).hostname.replace(/^www\./, "").toLowerCase());
+    } catch {
+      // ignore malformed seed
+    }
+  }
+  trustedHosts = set;
+  return set;
+}
+
+export function isTrustedHost(hostname: string): boolean {
+  if (isFamousHost(hostname)) return true;
+  const host = hostname.replace(/^www\./, "").toLowerCase();
+  if (!host) return false;
+  const set = trustedHostSet();
+  if (set.has(host)) return true;
+  for (const known of set) {
     if (host.endsWith(`.${known}`)) return true;
   }
   return false;

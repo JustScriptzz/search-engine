@@ -129,12 +129,22 @@ export function deepSearch(
   }
 
   const fused = fuse(rankings);
+  // Keep the magnitude of the best BM25 pass: RRF alone would score the page
+  // that matched an exact title phrase 40x harder exactly the same as the page
+  // that merely mentioned one word.
+  let bestScore = 0;
+  for (const id of fused.keys()) bestScore = Math.max(bestScore, byId.get(id)?.score ?? 0);
+  const blend = CONFIG.deepSearch.scoreBlend;
   const hits = [...fused.entries()]
-    .map(([id, score]) => ({ hit: byId.get(id)!, fused: score }))
+    .map(([id, fusedScore]) => ({ hit: byId.get(id)!, fused: fusedScore, id }))
     .filter((x) => x.hit)
     .sort((a, b) => b.fused - a.fused)
     .slice(0, limit)
-    .map((x) => ({ ...x.hit, score: Math.round(x.fused * 1000) / 1000 }));
+    .map((x) => {
+      const rel = bestScore > 0 ? Math.max(0, x.hit.score) / bestScore : 0;
+      const score = x.fused * (1 + blend * rel);
+      return { ...x.hit, score: Math.round(score * 1000) / 1000 };
+    });
 
   return {
     hits,

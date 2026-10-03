@@ -1,5 +1,5 @@
 // Every hardcoded value lives here. Change it once, not in six files.
-import { FAMOUS_SITES } from "./famous.ts";
+import { FAMOUS_SITES } from "./famousSites.ts";
 
 const FAMOUS_SITE_URLS = FAMOUS_SITES.map((s) => s.url);
 
@@ -173,6 +173,12 @@ export const CONFIG = {
     enabled: true,
     subQueries: true,
     expansionTerms: 6,
+    // Reciprocal-rank fusion only knows position, not magnitude: a page that
+    // matched an exact title phrase 40x harder than the next one arrives with
+    // the same fused score and loses on a tie-break. This blends the original
+    // BM25 score back in (relative to the best hit) so decisive matches stay
+    // decisive across passes.
+    scoreBlend: 1.5,
     maxPasses: 4,
     rrfK: 60,
   },
@@ -226,6 +232,17 @@ verticals: {
     boost: 1.9, // how much a matching vertical is promoted
     penalty: 3.0, // how much a non-matching vertical is demoted
     thumbMaxWidth: 640,
+  },
+
+  trust: {
+    // Two tiers of source. Curated = allowlisted or reached from our seed list,
+    // i.e. somewhere we chose on purpose. Discovered = found by Common Crawl or
+    // certificate transparency, which is also how a search engine ends up with
+    // NIH grant-spam link farms outranking the sites you actually seeded.
+    // Discovered pages are demoted, never hidden: if nothing else matches, they
+    // are still better than an empty page.
+    curatedBoost: 1.2,
+    discoveredPenalty: 0.3,
   },
 
   ai: {

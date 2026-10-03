@@ -139,6 +139,11 @@ export async function crawl(
       }
     }),
   );
+  // Explicit seeds are curated intent: they are fetched whatever the per-host
+  // cap says. Otherwise the first seed on a host (its link-heavy homepage) burns
+  // the whole quota and the specific pages we actually wanted are dropped
+  // before anyone asks — which is how youtube.com/watch?v=... went missing.
+  const seedUrlSet = new Set(seeds.map((s) => normalizeUrl(s) ?? s));
 
   let crawled = 0;
   let errors = 0;
@@ -173,7 +178,8 @@ export async function crawl(
           continue;
         }
         const host = safeHost(url);
-        if (perHost > 0 && (hostCounts.get(host) ?? 0) >= perHost) {
+        const isSeed = seedUrlSet.has(normalizeUrl(url) ?? url);
+        if (!isSeed && perHost > 0 && (hostCounts.get(host) ?? 0) >= perHost) {
           // Already had our share of this host; drop it from the frontier.
           continue;
         }
@@ -211,7 +217,7 @@ export async function crawl(
             errors++;
             continue;
           }
-          if (filterLanguage && !isAllowedLanguage(parsed.text)) {
+          if (filterLanguage && !mediaCard && !isAllowedLanguage(parsed.text)) {
             skippedLanguage++;
             continue;
           }

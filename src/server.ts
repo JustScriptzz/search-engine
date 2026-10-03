@@ -5,7 +5,7 @@ import { buildOverview } from "./overview.ts";
 import { deepSearch } from "./deepsearch.ts";
 import { verticalBoost, type Vertical } from "./media.ts";
 import { countryBoost, getClientIp, languageBoost, languagesForCountry, lookupCountry } from "./geo.ts";
-import { FAMOUS_SITES } from "./famous.ts";
+import { FAMOUS_SITES, isTrustedHost } from "./famous.ts";
 import { rejectDoc } from "./quality.ts";
 import { hasApiKey, keySource } from "./provider.ts";
 import { InvertedIndex } from "./index/invertedIndex.ts";
@@ -100,13 +100,16 @@ function runSearch(idx: InvertedIndex, opts: SearchOptions) {
       const pageAuthority = authority.score.get(host) ?? 0;
       const rank = Math.max(pageAuthority, isCuratedRoot(host, FAMOUS_HOST_SET) ? CONFIG.authority.curatedFloor : 0);
       const pop = 1 + CONFIG.authority.weight * Math.sqrt(rank);
+      // Trust tier: a seeded/allowlisted site outranks a page that merely turned
+      // up in Common Crawl. Discovered pages are demoted, not hidden.
+      const trust = isTrustedHost(host) ? CONFIG.trust.curatedBoost : CONFIG.trust.discoveredPenalty;
       // Vertical: promote the requested kind, demote the rest rather than hide.
       const vboost = verticalBoost(media.type, wanted);
       return {
         ...h,
         domain: host,
         media,
-        score: round(h.score * geo * pop * vboost),
+        score: round(h.score * geo * pop * trust * vboost),
         authority: round(rank),
       };
     })

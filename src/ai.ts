@@ -14,6 +14,7 @@ import { CONFIG } from "./config.ts";
 import { fetchHtml } from "./crawler/fetcher.ts";
 import { parseHtml } from "./crawler/parser.ts";
 import { countryBoost } from "./geo.ts";
+import { isTrustedHost } from "./famous.ts";
 import { chat, hasApiKey, isAuthError } from "./provider.ts";
 import type { InvertedIndex } from "./index/invertedIndex.ts";
 
@@ -100,7 +101,13 @@ export function summarizeCorpus(index: InvertedIndex, top = 12): CorpusSummary {
     counts.set(host, (counts.get(host) ?? 0) + 1);
   }
   const domains = [...counts.entries()]
-    .sort((a, b) => b[1] - a[1])
+    // Curated sources first: the agent should be told what we chose, not what
+    // Common Crawl happened to hand us.
+    .sort((a, b) => {
+      const ta = isTrustedHost(a[0]) ? 1 : 0;
+      const tb = isTrustedHost(b[0]) ? 1 : 0;
+      return tb - ta || b[1] - a[1];
+    })
     .slice(0, top)
     .map(([d]) => d);
   const s = index.stats();
@@ -113,7 +120,18 @@ export function buildContext(index: InvertedIndex, countryCode = "XX") {
       const n = Math.min(Math.max(1, limit), 10);
       return index
         .search(query, 25)
-        .map((h) => ({ ...h, score: round(h.score * countryBoost(h.url, countryCode)) }))
+        .map((h) => {
+          // The agent must not build its answer out of Common Crawl link-farm
+          // spam just because it happened to match. Curated sources first.
+          let host = "";
+          try {
+            host = new URL(h.url).hostname;
+          } catch {
+            // ignore
+          }
+          const trust = isTrustedHost(host) ? CONFIG.trust.curatedBoost : CONFIG.trust.discoveredPenalty;
+          return { ...h, score: round(h.score * countryBoost(h.url, countryCode) * trust) };
+        })
         .sort((a, b) => b.score - a.score)
         .slice(0, n)
         .map((h) => ({ title: h.title, url: h.url, snippet: h.snippet, score: h.score, wordCount: h.wordCount }));
