@@ -1,6 +1,7 @@
 import { statSync } from "node:fs";
 import { domainOf, round } from "./util.ts";
 import { handleV1, isV1 } from "./apiv1.ts";
+import { loadTls, tlsStatus } from "./tls.ts";
 import { CONFIG } from "./config.ts";
 import { runAgent, type ChatTurn } from "./ai.ts";
 import { authorityBoost, computeAuthority, isCuratedRoot } from "./authority.ts";
@@ -213,10 +214,17 @@ function parseLimit(raw: string | null): number {
 }
 
 export function startServer(idx: InvertedIndex, port: number = CONFIG.server.port) {
-  return Bun.serve({
+  // HTTPS when the certificate is on disk, plain HTTP when it is not. The
+  // allocated port stays the same either way — the panel hands us SERVER_PORT
+  // and the certificate decides the protocol on it.
+  const tls = loadTls();
+  const server = Bun.serve({
     port,
     hostname: CONFIG.server.host,
     idleTimeout: CONFIG.server.idleTimeoutSeconds,
+    // Present only when a certificate was found; undefined means plain HTTP.
+    // Bun defaults to TLSv1.2+ with modern ciphers, so there is nothing to tune.
+    tls: tls ? { cert: Bun.file(tls.certPath), key: Bun.file(tls.keyPath) } : undefined,
     async fetch(req) {
       const url = new URL(req.url);
       const cors = corsHeaders();
@@ -325,6 +333,7 @@ const deepParam = url.searchParams.get("deep");
             build: await buildCommit(),
             indexAgeHours: indexAgeHours(),
             crawlStaleHours: CONFIG.crawl.staleHours,
+            tls: tlsStatus(),
             indexPath: INDEX_PATH,
             ai: {
               // Deliberately opaque: the UI never advertises the model or vendor.
@@ -397,6 +406,7 @@ const deepParam = url.searchParams.get("deep");
             terms: idx.index.size,
             indexAgeHours: indexAgeHours(),
             stale: (indexAgeHours() ?? 0) > CONFIG.crawl.staleHours,
+            tls: tlsStatus(),
             verticals,
             topHosts: [...perHost.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20),
             probes: probe,
@@ -469,4 +479,11 @@ const deepParam = url.searchParams.get("deep");
       return new Response("Not found", { status: 404, headers: cors });
     },
   });
+
+  if (tls?.daysLeft !== undefined && tls.daysLeft <= 7) {
+    console.warn(
+      `warning: certificate ${tls.certPath} expires in ${tls.daysLeft} day(s) (${tls.notAfter}). Run: bash tls-cert.sh renew`,
+    );
+  }
+  return server;
 }

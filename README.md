@@ -257,8 +257,11 @@ Secrets live in `.env` (gitignored) — see `.env.example`.
 Startup tab:
 
 - `MAIN_FILE` = `pterodactyl.ts` — reads `SERVER_PORT`, loads `.env`, no args needed
-- `BUILD_COMMAND` = `bash sync.sh` — first boot clones the repo, then crawls once
+- `BUILD_COMMAND` = `bash sync.sh` — pulls the latest code, re-crawls when the index is stale, prunes
 - `AUTO_UPDATE` = `1` — boot `git pull`s new commits
+
+Once a certificate exists, the allocated port speaks HTTPS — the panel's port
+mapping does not change, so the same allocation serves `https://…:6036`.
 
 Upload a `.env` file containing `COGITO_API_KEY` in the Files tab (it is
 gitignored, so `git pull` never clobbers it). Without it the agent still answers,
@@ -270,6 +273,51 @@ Plain VPS instead:
 sudo bash setup-vps.sh        # OS auto-detect, Bun, systemd unit, verification
 bun build --compile ./src/cli.ts --outfile ./minisearch
 ```
+
+## HTTPS
+
+The server serves TLS on the same port the panel allocates, as soon as
+`fullchain.pem` and `privkey.pem` are in the workspace root. No switch to flip:
+missing certificates degrade to plain HTTP with a loud log rather than refusing
+to boot.
+
+DuckDNS has no API for Let’s Encrypt’s HTTP-01 to reach, because the app is not
+on port 443 — so `tls-cert.sh` uses a **DNS-01** challenge instead, which only
+needs to write a TXT record and works even while the server is stopped.
+
+```bash
+# 1. one-time: put your DuckDNS token in .env (never in shell history)
+#    DUCKTNS_TOKEN=xxxxxxxx  (duckdns.org -> your domain -> "token")
+
+# 2. issue + install + verify
+bash tls-cert.sh                 # writes ./fullchain.pem and ./privkey.pem (600)
+
+# 3. renew daily, pick up new files
+bash tls-cert.sh cron
+```
+
+| Command | Purpose |
+| --- | --- |
+| `bash tls-cert.sh` | Install acme.sh if needed, issue via DNS-01, install, verify |
+| `bash tls-cert.sh renew` | Renew if under `RENEW_DAYS` (30), then reinstall |
+| `bash tls-cert.sh install` | Re-copy the certificate into the root without reissuing |
+| `bash tls-cert.sh check` | Expiry, SAN coverage for your domain, key/cert match |
+| `bash tls-cert.sh cron` | Install acme.sh’s daily renewal timer |
+
+Knobs: `DOMAIN`, `ALT_DOMAINS`, `RENEW_DAYS`, `STAGING=1` (Let’s Encrypt’s test
+CA — use this on a first run so a mistake cannot burn the 5-certs/week limit),
+`ACME_EMAIL`, `TLS_RELOAD_CMD`.
+
+Two things worth knowing:
+
+- **Renewal rewrites the files; a running server keeps the old certificate in
+  memory.** Restart the panel after a renewal, or set `TLS_RELOAD_CMD`.
+- **`*.pem` is gitignored.** `sync.sh` does `git reset --hard` on every boot,
+  which leaves untracked files alone — so the certificate survives updates, but a
+  panel *reinstall* wipes the workspace and you re-run `tls-cert.sh`.
+
+`GET /api/stats` and `GET /api/doctor` report `tls.enabled`, the issuer, the
+expiry and a warning inside 7 days, and the boot log says `https (…, valid until …)`.
 
 ## Tests
 

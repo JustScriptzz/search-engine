@@ -6,3 +6,11 @@ node_modules/
 .DS_Store
 minisearch
 minisearch.exe
+
+# TLS material: tls-cert.sh writes these into the workspace root so the server
+# can find them. The private key must never reach a remote.
+privkey.pem
+fullchain.pem
+*.pem
+!test/**/*.pem
+certs/

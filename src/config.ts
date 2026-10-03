@@ -16,6 +16,23 @@ export const CONFIG = {
     // would cut it off. Unit is seconds (Bun caps it at 255).
     idleTimeoutSeconds: 240,
     sseHeartbeatMs: 8_000,
+    tls: {
+      // TLS is used as soon as both files are found. There is no separate switch
+      // to forget: a missing certificate degrades to plain HTTP with a loud log
+      // rather than refusing to boot on a box where renewal has not run yet.
+      enabled: true,
+      certFile: "fullchain.pem",
+      keyFile: "privkey.pem",
+      // Checked in order after the env overrides. Certs are usually written to
+      // the workspace root by tls-cert.sh.
+      searchDirs: [".", "certs"],
+      // Set these to point somewhere else (e.g. a secrets mount) without
+      // touching the repo.
+      certEnv: "TLS_CERT_FILE",
+      keyEnv: "TLS_KEY_FILE",
+      // Extra hostnames/SANs requested from the CA.
+      altNames: [] as string[],
+    },
   },
 
   // English-language, non-Wikipedia sources.

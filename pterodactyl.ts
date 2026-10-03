@@ -1,6 +1,7 @@
 import { loadEnvFile } from "./src/env.ts";
 import { CONFIG } from "./src/config.ts";
 import { loadIndex, startServer } from "./src/server.ts";
+import { describeTls } from "./src/tls.ts";
 
 await loadEnvFile();
 
@@ -14,8 +15,9 @@ const index = await loadIndex();
 const server = startServer(index, port);
 const { hasApiKey, keySource } = await import("./src/provider.ts");
 
-console.log(`${CONFIG.name} listening on port ${server.port} (docs=${index.docCount})`);
+console.log(`${CONFIG.name} listening on port ${server.port} — ${describeTls()} (docs=${index.docCount})`);
 console.log(`  UI      /`);
+console.log(`  api     /api/v1`);
 console.log(`  search  /api/search?q=hello`);
 console.log(`  stats   /api/stats`);
 console.log(
