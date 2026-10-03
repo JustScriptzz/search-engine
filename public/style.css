@@ -234,6 +234,9 @@ main { flex: 1; width: 100%; max-width: 1080px; margin: 0 auto; padding: 1.5rem 
   width: 118px; height: 74px; object-fit: cover; border-radius: var(--r-sm);
   border: 1px solid var(--line); background: var(--panel-2);
 }
+/* While the image loads (or if it never arrives) show a soft placeholder rather
+   than a black hole where a thumbnail should be. */
+.thumb:not([src]), .thumb[src=""] { background: var(--panel); }
 .vbadge {
   font: 600 .68rem var(--mono); text-transform: uppercase; letter-spacing: .06em;
   border-radius: 999px; padding: .14rem .5rem;

@@ -3,6 +3,7 @@ import { domainOf, round } from "./util.ts";
 import { handleV1, isV1 } from "./apiv1.ts";
 import { loadTls, tlsStatus } from "./tls.ts";
 import { bytesPerDoc, describeBudget, docsRemaining, footprintOf } from "./storage.ts";
+import { facetCounts } from "./facets.ts";
 import { CONFIG } from "./config.ts";
 import { runAgent, type ChatTurn } from "./ai.ts";
 import { authorityBoost, computeAuthority, isCuratedRoot } from "./authority.ts";
@@ -109,6 +110,7 @@ function runSearch(idx: InvertedIndex, opts: SearchOptions) {
       return {
         ...h,
         domain: host,
+        trust,
         media,
         score: round(h.score * geo * pop * trust * vboost),
         authority: round(rank),
@@ -117,18 +119,15 @@ function runSearch(idx: InvertedIndex, opts: SearchOptions) {
     .filter((h) => (wanted && wanted !== "text" ? h.media.type === wanted : true))
     .sort((a, b) => b.score - a.score);
 
-  const counts = new Map<string, number>();
-  for (const h of scored) counts.set(h.domain, (counts.get(h.domain) ?? 0) + 1);
-  const facets = [...counts.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .slice(0, 10)
-    .map(([domain, count]) => ({ domain, count }));
+  // Facets use the same trust weighting as the ranking, so the chips describe
+  // what the user is actually being shown.
+  const facets = facetCounts(scored.map((h) => ({ domain: h.domain, trust: h.trust })));
 
   const filtered = opts.domain ? scored.filter((h) => h.domain === opts.domain || h.domain.endsWith(`.${opts.domain}`)) : scored;
 
   const start = Math.max(0, opts.offset ?? 0);
   return {
-    hits: filtered.slice(start, start + opts.limit).map(({ domain: _domain, authority: _a, ...h }) => h),
+    hits: filtered.slice(start, start + opts.limit).map(({ domain: _domain, authority: _a, trust: _t, ...h }) => h),
     vertical: wanted,
     facets,
     total: filtered.length,

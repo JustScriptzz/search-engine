@@ -21,6 +21,7 @@ import type { InvertedIndex } from "./index/invertedIndex.ts";
 import { deepSearch } from "./deepsearch.ts";
 import { computeAuthority, isCuratedRoot } from "./authority.ts";
 import { domainOf, round } from "./util.ts";
+import { facetCounts } from "./facets.ts";
 
 export interface V1Deps {
   index: InvertedIndex;
@@ -233,6 +234,7 @@ function search(url: URL, deps: V1Deps, headers: Record<string, string>): Respon
         h,
         doc,
         domain: host,
+        trust,
         media,
         score: round(h.score * geo * pop * trust * verticalBoost(media.type, vertical === "text" ? null : vertical)),
         authority: round(rank),
@@ -242,8 +244,6 @@ function search(url: URL, deps: V1Deps, headers: Record<string, string>): Respon
     .sort((a, b) => b.score - a.score);
 
   const filtered = domain ? scored.filter((r) => r.domain === domain || r.domain.endsWith(`.${domain}`)) : scored;
-  const counts = new Map<string, number>();
-  for (const r of filtered) counts.set(r.domain, (counts.get(r.domain) ?? 0) + 1);
 
   const page = filtered.slice(offset, offset + limit);
   return json(
@@ -256,10 +256,7 @@ function search(url: URL, deps: V1Deps, headers: Record<string, string>): Respon
       nextOffset: offset + page.length < filtered.length ? offset + page.length : null,
       country: country.countryCode,
       vertical,
-      facets: [...counts.entries()]
-        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-        .slice(0, 10)
-        .map(([d, count]) => ({ domain: d, count })),
+      facets: facetCounts(filtered.map((r) => ({ domain: r.domain, trust: r.trust }))),
       results: page.map((r, i) => {
         const media = r.media;
         return {

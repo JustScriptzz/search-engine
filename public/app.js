@@ -36,8 +36,11 @@
     const terms = [...new Set(String(query).toLowerCase().split(/[^a-z0-9à-ÿ]+/i).filter((t) => t.length > 1))];
     let out = esc(text);
     for (const t of terms) {
+      const e = t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       // Whole-word only: "up" must not light up inside "Updated".
-      out = out.replace(new RegExp(`(?<![a-z0-9à-ÿ])(${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})(?![a-z0-9à-ÿ])`, "gi"), "<mark>$1</mark>");
+      // No lookbehind: Safari before 16.4 throws on it, and a SyntaxError here
+      // would blank every snippet on the page.
+      out = out.replace(new RegExp(`(^|[^a-z0-9à-ÿ])(${e})(?![a-z0-9à-ÿ])`, "gi"), (m, pre, word) => `${pre}<mark>${word}</mark>`);
     }
     return out;
   }
@@ -139,7 +142,12 @@
       thumb.loading = "lazy";
       thumb.alt = "";
       thumb.src = media.image;
-      thumb.addEventListener("error", () => thumb.remove());
+      // A blocked or dead thumbnail must not leave a hole in the card: drop the
+      // image *and* the layout class that reserved its column.
+      thumb.addEventListener("error", () => {
+        thumb.remove();
+        li.classList.remove("has-thumb");
+      });
       li.insertBefore(thumb, li.firstChild);
       li.classList.add("has-thumb");
     }
