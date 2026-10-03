@@ -11,7 +11,7 @@ export interface ParsedPage {
 
 export function parseHtml(html: string, baseUrl: string): ParsedPage {
   const titleMatch = html.match(/<title[^>]*>([\s\S]{0,500})<\/title>/i);
-  const title = decodeEntities((titleMatch?.[1] ?? "").replace(/\s+/g, " ").trim().slice(0, 200));
+  const title = stripTags(decodeEntities(titleMatch?.[1] ?? "")).replace(/\s+/g, " ").trim().slice(0, 200);
 
   const lang =
     /<html[^>]+lang\s*=\s*["']([a-zA-Z-]{2,5})/i.exec(html)?.[1]?.toLowerCase() ?? "";
@@ -30,31 +30,39 @@ export function parseHtml(html: string, baseUrl: string): ParsedPage {
     }
   }
 
-  // Link density: how much of the visible text is link labels rather than
-  // prose. Article pages sit low; index/listing pages sit very high.
-  const stripped = html
+  // Order matters: decode entities FIRST, then drop script/style blocks, then
+  // strip tags. Doing it the other way round leaves escaped markup behind,
+  // which decodes into visible junk (e.g. YouTube's ytInitialData JSON).
+  const decoded = decodeEntities(html);
+
+  const linkDensitySource = decoded
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<template[\s\S]*?<\/template>/gi, " ")
+    .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
     .replace(/<nav[\s\S]*?<\/nav>/gi, " ")
     .replace(/<header[\s\S]*?<\/header>/gi, " ")
     .replace(/<footer[\s\S]*?<\/footer>/gi, " ")
     .replace(/<aside[\s\S]*?<\/aside>/gi, " ")
     .replace(/<form[\s\S]*?<\/form>/gi, " ");
+
   let linkChars = 0;
-  stripped.replace(/<a\b[^>]*>([\s\S]*?)<\/a>/gi, (_m, inner: string) => {
+  linkDensitySource.replace(/<a\b[^>]*>([\s\S]*?)<\/a>/gi, (_m, inner: string) => {
     linkChars += stripTags(inner).length;
     return " ";
   });
 
-  // Density is measured against the FULL text, before truncation, otherwise a
-  // capped article would always read as 100% links.
-  const fullText = decodeEntities(stripTags(stripped))
-    // Strip markup leftovers that survive tag removal: arrows, pipes, bullets.
+  const fullText = stripTags(linkDensitySource)
+    // leftovers that survive tag removal: arrows, pipes, bullets, quotes
     .replace(/->|=>|→/g, " ")
     .replace(/[|*_~#>]+/g, " ")
+    .replace(/[{}[\]]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+  // Density is measured against the FULL text, before truncation, otherwise a
+  // capped article would always read as 100% links.
   const linkDensity = fullText.length > 0 ? Math.min(linkChars / fullText.length, 1) : 0;
   const text = fullText.slice(0, CONFIG.crawl.maxTextChars);
 

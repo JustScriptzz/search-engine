@@ -32,11 +32,43 @@ export function isJunkUrl(urlStr: string): boolean {
   return segments.some((seg) => CONFIG.crawl.blockedPathSegments.includes(seg.replace(/\.(html?|php|aspx?)$/, "")));
 }
 
+/** Machine payload, not prose: YouTube's ytInitialData, Twitter payloads,
+ *  minified app state. Detected structurally — these blobs are one huge
+ *  unspaced token, so word-level ratios never see them. */
+export function looksLikeCodeBlob(text: string): boolean {
+  const sample = text.slice(0, 4000);
+  if (sample.length < 200) return false;
+
+  // 1. a single "word" that is really a minified payload
+  for (const w of sample.split(/\s+/)) {
+    if (w.length > 400) return true;
+  }
+  // 2. a JavaScript assignment whose literal is a *blob*: an object/array
+  //    followed by a long, almost unspaced run. Docs pages legitimately show
+  //    `const state = {...}` code, so the size check is what separates them.
+  const assign = /\b(?:var|let|const)\s+[A-Za-z_$][\w$]*\s*=\s*[[{]/.exec(sample);
+  if (assign) {
+    const after = sample.slice(assign.index, assign.index + 400);
+    const spaces = (after.match(/\s/g) ?? []).length;
+    if (spaces < 12) return true;
+  }
+  // 3. dense "key":"value" pairs — JSON with no prose around it
+  const kv = (sample.match(/"[^"]{1,40}":/g) ?? []).length;
+  if (kv >= 8 && kv / Math.max(sample.length / 200, 1) > 2) return true;
+
+  const words = sample.split(/\s+/).filter(Boolean);
+  if (words.length < 40) return false;
+  const codeish = words.filter((w) => /^[A-Za-z_][\w$]*[:=,;]{1}$|["'{}[\]]/.test(w) || /^[a-z]+[A-Z]/.test(w)).length;
+  const punct = (sample.match(/["'{}[\]:;=]/g) ?? []).length / sample.length;
+  return codeish / words.length > 0.25 || punct > 0.14;
+}
+
 /** Pages with no real prose (cookie walls, "enable JavaScript", nav-only stubs). */
 export function isLowQualityText(text: string): boolean {
   const t = text.trim();
   if (t.length < CONFIG.quality.minDocChars) return true;
   if (/^(enable javascript|please enable|loading\.\.\.)/i.test(t)) return true;
+  if (looksLikeCodeBlob(t)) return true;
   const words = t.split(/\s+/);
   if (words.length < 12) return false;
   // Tiny vocabulary repeated over and over = nav/boilerplate, not content.

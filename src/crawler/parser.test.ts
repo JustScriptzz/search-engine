@@ -42,4 +42,32 @@ describe("parser", () => {
   test("normalizeUrl strips hash and trailing slash", () => {
     expect(normalizeUrl("https://example.com/a/#frag")).toBe("https://example.com/a");
   });
+
+  test("escaped markup never becomes visible text", () => {
+    // Order matters: entities are decoded before tags are stripped, otherwise
+    // `&lt;script&gt;` decodes into a visible JS blob (YouTube's ytInitialData).
+    const html = `<html><head><title>GitHub - YouTube</title></head><body>
+      About Press Copyright Contact us
+      <div>&lt;script&gt;var ytInitialData = {"responseContext":{"x":1}};&lt;/script&gt;</div>
+    </body></html>`;
+    const p = parseHtml(html, "https://www.youtube.com/github");
+    expect(p.text).not.toContain("ytInitialData");
+    expect(p.text).toContain("About Press");
+  });
+
+  test("script, style and template blocks are dropped", () => {
+    const html = `<html><head><title>T</title><style>.a{color:red}</style></head>
+      <body><script>var s = {"k":"v"};</script><p>Actual prose about a topic here.</p></body></html>`;
+    const p = parseHtml(html, "https://x.test/");
+    expect(p.text).toContain("Actual prose");
+    expect(p.text).not.toContain("color:red");
+    expect(p.text).not.toContain('"k"');
+  });
+
+  test("link density separates an article from a link index", () => {
+    const article = `<html><body>${"<p>GitHub hosts code and lets teams review changes together.</p>".repeat(6)}</body></html>`;
+    const index = `<html><body>${'<a href="/x">link label</a> '.repeat(40)}</body></html>`;
+    expect(parseHtml(article, "https://a.test/").linkDensity).toBeLessThan(0.4);
+    expect(parseHtml(index, "https://a.test/").linkDensity).toBeGreaterThan(0.7);
+  });
 });

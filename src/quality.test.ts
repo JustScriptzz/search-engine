@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isJunkUrl, isLatinLanguageCode, isLowQualityText, rejectDoc } from "./quality.ts";
+import { isJunkUrl, isLatinLanguageCode, isLowQualityText, looksLikeCodeBlob, rejectDoc } from "./quality.ts";
 
 describe("quality gate", () => {
   test("drops login-walled social hosts and ad infrastructure", () => {
@@ -62,6 +62,25 @@ describe("quality gate", () => {
     expect(isLowQualityText("Home About Contact Privacy Terms Subscribe")).toBe(true);
     expect(isLowQualityText("Please enable JavaScript to continue.")).toBe(true);
     expect(isLowQualityText("A detailed article body with real prose about markets and policy, written for a reader who wants to understand what happened and why.")).toBe(false);
+  });
+
+  test("detects minified app payloads but not real docs code", () => {
+    // The bug this guards: youtube.com pages indexed a wall of ytInitialData
+    // JSON that showed up in snippets.
+    const blob = `About Press Copyright Contact us var ytInitialData = ${JSON.stringify({
+      responseContext: { serviceTrackingParams: "x".repeat(400), visitorData: "y".repeat(300) },
+      contents: { a: "b".repeat(200) },
+    })}`;
+    expect(looksLikeCodeBlob(blob)).toBe(true);
+    expect(isLowQualityText(blob)).toBe(true);
+
+    // Documentation legitimately shows code; it must not be flagged.
+    const docs = `Use React to build components. When you need to store data, call
+      const [count, setCount] = useState(0) inside your component and then render
+      the value. The state variable is named count and the setter is setCount so
+      React knows which value to replace on the next render pass.`;
+    expect(looksLikeCodeBlob(docs)).toBe(false);
+    expect(isLowQualityText(docs)).toBe(false);
   });
 
   test("rejects a nav-only page even on an allowed host", () => {
