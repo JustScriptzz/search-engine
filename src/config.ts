@@ -309,16 +309,23 @@ ai: {
     // What we are willing to spend on disk. The VPS has ~1 GB, so the crawl has
     // to stop on its own rather than fill the disk and take the panel down with
     // it. data/index.json is rewritten on every save, so leave headroom for two
-    // copies of it plus the runtime.
-    indexBudgetMb: 620,
-    // Refuse to start a bulk run that would leave less than this free.
+    // copies of it plus the runtime and the OS.
+    indexBudgetMb: 500,
+    // Refuse to start a fill run that would leave less than this free.
     minFreeMb: 120,
-    // Documents per host in bulk mode: many hosts, few pages each. Coverage
+    // Documents per host in fill mode: many hosts, a few pages each. Coverage
     // beats depth when the budget is the binding constraint.
     bulkPerHost: 2,
-    // Bulk mode only takes pages that look like real pages from the hosts we
-    // chose on purpose, unless you opt into the long tail.
+    // Fill mode only takes pages from the hosts we chose on purpose unless you
+    // pass --long-tail. The long tail is where link-farm spam lives.
     bulkCuratedOnly: true,
+    // Wall-clock ceiling for one fill run, so a boot never hangs forever.
+    fillMaxMinutes: 25,
+    // Pages pulled per host from its sitemap in fill mode.
+    fillSitemapPerHost: 400,
+    // Bounded passes over the Common Crawl index, so a fill run moves through
+    // its phases instead of living on discovery forever.
+    fillDiscoverRounds: 6,
   },
 
   discovery: {

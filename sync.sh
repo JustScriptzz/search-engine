@@ -27,10 +27,16 @@ fi
 # re-crawl a manual chore: delete the file, restart. Crawl-time behaviour
 # (media cards, seed priority, trust) only reaches the corpus when a crawl
 # actually runs, so freshness is now time-based.
+#
+# The job is `fill`, not `crawl`: it works through sitemaps of the curated hosts
+# first, then Common Crawl depth on those hosts, and stops by itself when the
+# disk budget (CONFIG.storage.indexBudgetMb) is reached. That is what turns a
+# 900-document index into a full one without ever risking the disk.
 INDEX=data/index.json
-STALE_HOURS="${STALE_HOURS:-6}"      # re-crawl at most this often
-CRAWL_MAX="${CRAWL_MAX:-300}"        # pages per crawl; ~60 pages per site
-CRAWL_CONCURRENCY="${CRAWL_CONCURRENCY:-3}"
+STALE_HOURS="${STALE_HOURS:-6}"       # re-fill at most this often
+FILL_MINUTES="${FILL_MINUTES:-25}"    # wall-clock ceiling for one fill run
+FILL_BUDGET_MB="${FILL_BUDGET_MB:-500}"
+FILL_LONG_TAIL="${FILL_LONG_TAIL:-0}" # 1 = also crawl the open web (junkier)
 
 need_crawl=1
 if [ -s "$INDEX" ]; then
@@ -44,10 +50,13 @@ if [ -s "$INDEX" ]; then
 fi
 
 if [ "$need_crawl" = "1" ]; then
-  echo "crawling (max=${CRAWL_MAX}, concurrency=${CRAWL_CONCURRENCY})"
+  echo "filling toward ${FILL_BUDGET_MB} MB (max ${FILL_MINUTES} min)"
   # New pages are added to the existing index; duplicates are rejected by
-  # content hash, so repeated crawls grow the corpus instead of rewriting it.
-  bun src/cli.ts crawl --max "$CRAWL_MAX" --concurrency "$CRAWL_CONCURRENCY"
+  # content hash, so repeated runs grow the corpus instead of rewriting it.
+  bun src/cli.ts fill \
+    --budget-mb "$FILL_BUDGET_MB" \
+    --max-minutes "$FILL_MINUTES" \
+    $([ "$FILL_LONG_TAIL" = "1" ] && echo --long-tail)
 fi
 
 # ---- 3. keep the index honest -------------------------------------------

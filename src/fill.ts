@@ -1,0 +1,84 @@
+// The fill plan: how to spend a disk budget, in the right order.
+//
+// "Fill 500 MB" sounds like one thing you turn on, but the order sources are
+// tried in decides what the index is worth. Sitemaps of sites we chose are the
+// best URLs on the web — real pages, no guessing. The Common Crawl index gives
+// depth on the same hosts. The long tail (every topic pattern anyone ever
+// published) is where NIH grant-spam link farms live, so it is opt-in.
+//
+// The loop is deliberately simple and resumable: work out what to do next,
+// do it, look at the disk, repeat. Each step is small enough to survive a
+// restart, and the budget check is arithmetic rather than a hope.
+import { CONFIG } from "./config.ts";
+import { docsRemaining, type IndexFootprint } from "./storage.ts";
+
+export type FillPhase = "sitemaps" | "discover" | "longtail" | "done";
+
+export interface FillPlanInput {
+  footprint: IndexFootprint;
+  budgetMb: number;
+  /** Pages already harvested for the host currently being worked on. */
+  triedHosts: number;
+  /** Total hosts in the allowlist. */
+  totalHosts: number;
+  /** Allow the long tail. Off by default. */
+  longTail: boolean;
+  /** Wall-clock budget for the whole run. */
+  deadline: number;
+  /** Pages fetched so far this run. */
+  fetched: number;
+  /** Page cap for the whole run, as a backstop against a hung run. */
+  maxPages: number;
+  /** How many Common Crawl passes have run. Bounded, so phases can sequence. */
+  discoverRounds: number;
+}
+
+export interface FillDecision {
+  phase: FillPhase;
+  /** Why we stopped, when phase is "done". */
+  reason?: string;
+  /** How many URLs to request in this step. */
+  batch: number;
+}
+
+export function planFill(input: FillPlanInput, now = Date.now()): FillDecision {
+  const { footprint, budgetMb, triedHosts, totalHosts, deadline, fetched, maxPages } = input;
+
+  if (fetched >= maxPages) return { phase: "done", reason: `page cap reached (${maxPages})`, batch: 0 };
+  if (now >= deadline) return { phase: "done", reason: "time budget reached", batch: 0 };
+
+  const room = docsRemaining(footprint, budgetMb);
+  if (room <= 0) {
+    return { phase: "done", reason: `disk budget reached: ${footprint.mb} MB of ${budgetMb} MB`, batch: 0 };
+  }
+  // Stop while there is still room for a few more pages: the index file is
+  // rewritten on every save, so the last batch must not be the one that fills
+  // the disk past the headroom we reserved.
+  if (room <= 50) return { phase: "done", reason: `only ${room} docs of headroom left`, batch: 0 };
+
+  // Sitemaps first: the highest-quality URLs available, and the only source
+  // that does not need a wildcard query.
+  if (triedHosts < totalHosts) {
+    return { phase: "sitemaps", batch: Math.min(CONFIG.storage.fillSitemapPerHost, Math.max(20, room)) };
+  }
+  // Then depth on the same allowlisted hosts via the Common Crawl index, for a
+  // bounded number of rounds so the later phases are actually reachable.
+  if (input.discoverRounds < CONFIG.storage.fillDiscoverRounds && room > 500) {
+    return { phase: "discover", batch: Math.min(400, Math.max(50, room)) };
+  }
+  // The long tail only when asked for, and only with real room to spend.
+  if (input.longTail && room > 2000) {
+    return { phase: "longtail", batch: Math.min(2000, Math.max(200, room)) };
+  }
+  return { phase: "done", reason: "no more curated sources to harvest", batch: 0 };
+}
+
+/** Hosts to work through, in allowlist order, skipping the ones already done. */
+export function hostQueue(seedHosts: string[], skip: Set<string>): string[] {
+  return seedHosts.filter((h) => !skip.has(h));
+}
+
+/** A deadline the loop can check cheaply on every step. */
+export function deadlineFromNow(minutes: number, now = Date.now()): number {
+  return now + Math.max(1, minutes) * 60_000;
+}

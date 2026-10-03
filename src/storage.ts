@@ -23,7 +23,7 @@ export function bytesPerDoc(f: IndexFootprint): number {
 }
 
 /** How many more documents fit in the remaining budget. */
-export function docsRemaining(f: IndexFootprint, budgetMb = CONFIG.storage.indexBudgetMb): number {
+export function docsRemaining(f: IndexFootprint, budgetMb: number = CONFIG.storage.indexBudgetMb): number {
   const room = budgetMb * 1_048_576 - f.bytes;
   const per = bytesPerDoc(f);
   if (per <= 0) return Number.POSITIVE_INFINITY; // nothing measured yet
@@ -47,14 +47,14 @@ export function estimateDocs(opts: {
 }
 
 /** True when there is room for `count` more documents at the measured rate. */
-export function canAfford(f: IndexFootprint, count: number, budgetMb = CONFIG.storage.indexBudgetMb): boolean {
+export function canAfford(f: IndexFootprint, count: number, budgetMb: number = CONFIG.storage.indexBudgetMb): boolean {
   const per = bytesPerDoc(f);
   if (per <= 0) return count <= 2000; // first fill: allow a normal run
   return f.bytes + per * count <= budgetMb * 1_048_576;
 }
 
 /** Documents we can still add before hitting the budget, capped for one run. */
-export function runAllowance(f: IndexFootprint, cap = 5000, budgetMb = CONFIG.storage.indexBudgetMb): number {
+export function runAllowance(f: IndexFootprint, cap = 5000, budgetMb: number = CONFIG.storage.indexBudgetMb): number {
   return Math.min(cap, docsRemaining(f, budgetMb));
 }
 
