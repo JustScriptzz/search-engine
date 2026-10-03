@@ -64,19 +64,30 @@ class ModelCache {
 
 const modelCache = new ModelCache();
 
-function headers(): Record<string, string> {
+function headers(key = apiKey()): Record<string, string> {
   const h: Record<string, string> = { "content-type": "application/json" };
-  const key = process.env[CONFIG.ai.tokenEnv];
   if (key) h.authorization = `Bearer ${key}`;
   return h;
 }
 
 export function apiKey(): string {
-  return process.env[CONFIG.ai.tokenEnv]?.trim() || CONFIG.ai.apiKeyFallback.trim();
+  return keyCandidates()[0] ?? "";
+}
+
+/** Every key we are willing to try, best first: env var, then the fallback
+ *  baked into config. A 401 falls through to the next candidate instead of
+ *  leaving the agent permanently broken by a stale/typo'd .env. */
+export function keyCandidates(): string[] {
+  const out: string[] = [];
+  const fromEnv = process.env[CONFIG.ai.tokenEnv]?.trim();
+  const fallback = CONFIG.ai.apiKeyFallback.trim();
+  if (fromEnv) out.push(fromEnv);
+  if (fallback && !out.includes(fallback)) out.push(fallback);
+  return out;
 }
 
 export function hasApiKey(): boolean {
-  return apiKey().length > 0;
+  return keyCandidates().length > 0;
 }
 
 /** True when the failure means "bad/absent credentials", not a transient fault. */
@@ -90,8 +101,8 @@ export const providerPacing: { minIntervalMs: number } = { minIntervalMs: CONFIG
 
 /** One chat completion. Throws ProviderError with the HTTP status attached. */
 export async function chat(messages: Array<Record<string, unknown>>): Promise<AssistantMessage> {
-  const key = apiKey();
-  if (!key) throw new ProviderError(`missing ${CONFIG.ai.tokenEnv} — set it in .env or the panel startup`);
+  const keys = keyCandidates();
+  if (keys.length === 0) throw new ProviderError(`missing ${CONFIG.ai.tokenEnv} — set it in .env or the panel startup`);
 
   await pace();
   const model = await modelCache.resolve();
@@ -104,18 +115,24 @@ export async function chat(messages: Array<Record<string, unknown>>): Promise<As
   };
 
   let lastError: ProviderError | null = null;
+  let keyIndex = 0;
   for (let attempt = 0; attempt <= CONFIG.ai.retries; attempt++) {
     try {
       lastRequestAt = Date.now();
       const res = await fetch(`${CONFIG.ai.baseUrl}/chat/completions`, {
         method: "POST",
-        headers: headers(),
+        headers: headers(keys[keyIndex]),
         body: JSON.stringify(body),
       });
       if (res.ok) return toMessage(await res.json());
 
       const text = await res.text().catch(() => "");
       lastError = new ProviderError(`HTTP ${res.status}: ${text.slice(0, 180)}`, res.status);
+      // 401/403: that key is bad — try the next candidate instead of failing.
+      if (isAuthError(res.status) && keyIndex + 1 < keys.length) {
+        keyIndex++;
+        continue;
+      }
       if (isAuthError(res.status) || res.status === 404 || res.status === 400) throw lastError;
       await sleep(CONFIG.ai.retryBackoffMs * (attempt + 1));
     } catch (err) {
