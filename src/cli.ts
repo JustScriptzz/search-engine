@@ -7,6 +7,7 @@ import { InvertedIndex } from "./index/invertedIndex.ts";
 import { loadIndex, saveIndex, startServer } from "./server.ts";
 import { rejectDoc } from "./quality.ts";
 import { discoverMany } from "./discovery.ts";
+import { collectSitemapUrls, subdomainsFromCrt } from "./sitemaps.ts";
 import { FAMOUS_SITES } from "./famous.ts";
 
 await loadEnvFile();
@@ -15,6 +16,27 @@ function arg(name: string, fallback?: string): string | undefined {
   const i = process.argv.indexOf(name);
   if (i !== -1 && process.argv[i + 1]) return process.argv[i + 1];
   return fallback;
+}
+
+/** Expand discovered hosts via their published sitemaps. */
+async function sitemapPass(urls: string[], maxHosts: number): Promise<string[]> {
+  const hosts = new Map<string, string>();
+  for (const u of urls) {
+    try {
+      const h = new URL(u).hostname.replace(/^www\./, "");
+      hosts.set(h, `https://${h}/`);
+    } catch {
+      // ignore
+    }
+  }
+  const picked = [...hosts.values()].slice(0, maxHosts);
+  const out: string[] = [];
+  for (const origin of picked) {
+    const res = await collectSitemapUrls(origin, { maxUrls: CONFIG.discovery.sitemapUrlLimit });
+    if (res.urls.length) console.error(`${origin}: ${res.urls.length} sitemap urls`);
+    out.push(...res.urls);
+  }
+  return out;
 }
 
 async function readSeeds(file: string | undefined): Promise<string[]> {
@@ -26,7 +48,53 @@ async function readSeeds(file: string | undefined): Promise<string[]> {
 
 const cmd = process.argv[2];
 
-if (cmd === "discover") {
+if (cmd === "sitemap" || cmd === "crt") {
+  // Two cheap URL sources that need no crawling: published sitemaps and
+  // certificate-transparency logs.
+  const hosts = (arg("--hosts") ?? "").split(",").map((h) => h.trim()).filter(Boolean);
+  if (hosts.length === 0) {
+    console.error(cmd === "sitemap" ? "Usage: sitemap --hosts bbc.com,nasa.gov [--per-host 5000]" : "Usage: crt --hosts bbc.com [--limit 50]");
+    process.exit(1);
+  }
+  const out = arg("--out");
+  const all: string[] = [];
+  for (const host of hosts) {
+    const origin = host.startsWith("http") ? host : `https://${host}`;
+    if (cmd === "sitemap") {
+      const res = await collectSitemapUrls(origin, { maxUrls: parseInt(arg("--per-host", "5000")!) });
+      console.error(`${host}: ${res.urls.length} urls from ${res.sitemaps} sitemaps (${res.errors.length} unreadable)`);
+      all.push(...res.urls);
+    } else {
+      const res = await subdomainsFromCrt(host, parseInt(arg("--limit", "50")!));
+      if (res.error) console.error(`${host}: ${res.error}`);
+      console.error(`${host}: ${res.urls.length} subdomains`);
+      all.push(...res.urls);
+    }
+  }
+  const unique = [...new Set(all)];
+  console.error(`total unique urls: ${unique.length}`);
+  if (out) {
+    await Bun.write(out, unique.join("\n"));
+    console.error(`wrote ${out} (${(unique.join("\n").length / 1e6).toFixed(1)} MB on disk)`);
+  } else for (const u of unique) console.log(u);
+} else if (cmd === "plan") {
+  // Discovery only: build a URL frontier on disk without fetching a page.
+  const perPattern = parseInt(arg("--per-pattern", String(CONFIG.discovery.perPattern))!);
+  const patterns = (arg("--patterns") ?? "").split(",").map((p) => p.trim()).filter(Boolean);
+  const list = patterns.length ? patterns : CONFIG.discovery.topicPatterns;
+  const res = await discoverMany(list, perPattern);
+  if (res.collection) console.log(`collection: ${res.collection}`);
+  for (const f of res.failures) console.error(`  ! ${f}`);
+  const extra = await sitemapPass(res.urls, parseInt(arg("--sitemaps", "25")!));
+  const all = [...new Set([...res.urls, ...extra])];
+  const out = arg("--out", "data/discovered.txt")!;
+  await Bun.write(out, all.join("\n"));
+  const bytes = all.join("\n").length;
+  console.log(
+    `${all.length} urls -> ${out} (${(bytes / 1e6).toFixed(1)} MB). ` +
+      `Fetched nothing yet; run: bun src/cli.ts crawl --seeds ${out}`,
+  );
+} else if (cmd === "discover") {
   // Ask the Common Crawl index for real URLs instead of relying on a seed list.
   const limit = parseInt(arg("--per-pattern", String(CONFIG.discovery.perPattern))!);
   const topics = arg("--patterns")?.split(",").map((t) => t.trim()).filter(Boolean);

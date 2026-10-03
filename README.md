@@ -80,7 +80,55 @@ are only minted for a site's own front page or a top-level section, never for
 Result: searching `google` returns `google.com` itself, not pages that merely
 mention it.
 
-## Internet-scale discovery
+## More URL sources
+
+Three independent sources, none of which require crawling through link graphs:
+
+```bash
+# 1. published sitemaps (cheapest bulk source on the web)
+bun src/cli.ts sitemap --hosts nasa.gov,www.bbc.com --per-host 5000 --out data/urls.txt
+
+# 2. certificate transparency: real subdomains, no API key
+bun src/cli.ts crt --hosts bbc.com --limit 200
+
+# 3. Common Crawl index (wildcards across topic domains)
+bun src/cli.ts discover --patterns "*.arxiv.org/*" --per-pattern 100
+
+# build a big frontier on disk WITHOUT fetching a single page
+bun src/cli.ts plan --per-pattern 60 --sitemaps 40 --out data/discovered.txt
+bun src/cli.ts crawl --seeds data/discovered.txt --max 2000
+```
+
+Sitemaps are the big one: sites publish their whole URL inventory there, and
+`sitemapsPerHost` × `sitemapUrlLimit` scales to tens of thousands of real article
+URLs per domain for the price of a few HTTP requests. Verified: `nasa.gov` and
+`bbc.com` yield 300+ article URLs each in seconds.
+
+### Storage reality on 1 GB
+
+URLs and documents cost very differently:
+
+| thing | bytes | 1 GB holds |
+| --- | --- | --- |
+| URL string | ~50–80 | **~13–20 million** |
+| indexed document | ~44 KB (full text) | ~20–25 thousand |
+
+So keep discovery and fetching separate: `plan` writes millions of URLs to a
+text file for a few MB, and `crawl` fetches as many as your CPU, RAM and disk
+allow. Dropping full text and storing only title + description + URL cuts a doc
+to ~1 KB (~1 million on 1 GB) if you want a URL-scale index — see `types.ts`
+for where `text` is consumed.
+
+### Other bulk sources worth adding
+
+- **Common Crawl WARC/WET dumps** — fetch once, parse locally; no per-URL HTTP
+- **Wikipedia / Stack Exchange dumps** — whole encyclopedias as text
+- **HTTP Archive** — millions of real URLs with response metadata
+- **Tranco / Cloudflare Radar domain lists** — top-N ranked domains as seeds
+
+Each trades disk or a dependency for volume; none of them can be crawled *and*
+stored in full on 1 GB, so the right shape is a URL frontier on disk plus a
+bounded fetched index in memory.
 
 Seed lists only get you so far, so `src/discovery.ts` queries the **Common Crawl
 index** — a public catalogue of every URL anyone has crawled:

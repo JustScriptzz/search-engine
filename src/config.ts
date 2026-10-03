@@ -227,6 +227,10 @@ export const CONFIG = {
     collectionCacheTtlMs: 6 * 60 * 60 * 1000,
     // How many URLs to pull per pattern during `discover`.
     perPattern: 40,
+    // Sitemap expansion: how many sitemap docs to read per host, and how many
+    // URLs to keep. Sitemaps are the cheapest bulk URL source on the web.
+    sitemapsPerHost: 8,
+    sitemapUrlLimit: 5000,
     // Topic wildcards expanded into URL patterns for `crawl --discover`.
     topicPatterns: [
       "en.wikipedia.org/wiki/*",

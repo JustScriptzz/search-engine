@@ -47,6 +47,32 @@ export async function fetchHtml(url: string, opts: FetchOpts = {}, attempts = 1)
   }
 }
 
+/** Fetch plain text (robots.txt, sitemaps.xml) with a byte cap. */
+export async function fetchText(
+  url: string,
+  opts: { timeoutMs?: number; maxBytes?: number } = {},
+): Promise<string | null> {
+  const timeoutMs = opts.timeoutMs ?? CONFIG.crawl.timeoutMs;
+  const maxBytes = opts.maxBytes ?? CONFIG.crawl.maxBytes;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      signal: ctrl.signal,
+      redirect: "follow",
+      headers: { "user-agent": CONFIG.userAgent, accept: "text/plain,application/xml,text/xml,*/*" },
+    });
+    if (!res.ok) return null;
+    const buf = await res.arrayBuffer();
+    const usable = buf.byteLength > maxBytes ? buf.slice(0, maxBytes) : buf;
+    return decodeHtml(usable, res.headers.get("content-type") ?? "");
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 /** Decode bytes using the Content-Type charset, then <meta charset>, then UTF-8. */
 export function decodeHtml(buf: ArrayBuffer, contentType = ""): string {
   const bytes = new Uint8Array(buf);
