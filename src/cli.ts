@@ -78,7 +78,7 @@ if (cmd === "crawl") {
   console.log(`${CONFIG.name} on http://localhost:${server.port}  (docs=${idx.docCount})`);
   console.log(`  GET  /api/search?q=hello`);
   console.log(`  GET  /api/stats`);
-  console.log(`  POST /api/chat  {"message":"..."}  (SSE, ${CONFIG.ai.provider} / ${CONFIG.ai.model}${hasApiKey() ? "" : " — no API key"})`);
+  console.log(`  POST /api/chat  {"message":"..."}  (SSE agent, ${hasApiKey() ? "ready" : "no credentials"})`);
 } else {
   console.log(`${CONFIG.name} ${CONFIG.version}
 

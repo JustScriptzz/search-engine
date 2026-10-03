@@ -108,7 +108,10 @@ export const CONFIG = {
   tokenizer: {
     minLen: 2,
     maxLen: 32,
-    extraStopwords: ["com", "http", "https", "www", "html", "org", "net"] as string[],
+    // No domain/URL-ish stopwords: "html", "com" and "www" are real query
+    // terms on a web index, and dropping them silently broke queries like
+    // "html standards" (they matched a single term instead of two).
+    extraStopwords: [] as string[],
   },
 
   geo: {

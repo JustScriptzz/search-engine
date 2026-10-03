@@ -84,9 +84,9 @@
       el.stats.textContent = t;
       el.foot.textContent = `${s.name} ${s.version} · ${t} · ${s.termCount.toLocaleString()} terms`;
       el.sub.textContent = s.ai
-        ? (s.ai.configured
-            ? `${s.ai.provider} · ${s.ai.model} · tools: search_index, read_page, index_stats`
-            : `${s.ai.provider} · no API key — falls back to raw index results`)
+        ? (s.ai.ready
+            ? "reads this index, then answers with sources"
+            : "offline · answering from raw index results")
         : "agent: offline";
     } catch {
       el.stats.textContent = "offline";

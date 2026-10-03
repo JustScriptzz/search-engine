@@ -46,17 +46,16 @@ curl -N -X POST localhost:3000/api/chat -H 'content-type: application/json' \
 
 ## MiniSearch AI
 
-- Provider: **Cogito (Decart)** — OpenAI-compatible `https://api.cogito.decart.ai/v1`,
-  model resolved from `GET /v1/models` to your account's GPT-OSS 120B slug
-  (e.g. `gpt-oss:ultra-fast`). text.pollinations.ai's text API is deprecated,
-  so nothing depends on it any more.
+- Runs on an OpenAI-compatible chat endpoint configured in `src/config.ts`
+  (`ai.baseUrl`, `ai.model`, resolved at runtime against `GET /v1/models`).
+  Nothing about the vendor or model is exposed by the API or the UI.
 - System prompt brands it *MiniSearch AI*, forces `search_index` before any claim,
   forbids invented URLs, and requires markdown citations from tool output.
 - Tools (full backend access): `search_index` (BM25 + country boost),
   `read_page` (refetches an indexed URL; off-index URLs are rejected),
   `index_stats`.
-- Tool protocol: Cogito's `/chat/completions` returns empty `tool_calls` for
-  gpt-oss (harmony channels aren't mapped), so the agent emits
+- Tool protocol: this endpoint returns empty `tool_calls` for the configured
+  model, so the agent emits
   `MINISEARCH_TOOL {"name":…,"args":…}` and we execute it ourselves. Native
   `tool_calls` are still honoured if a provider ever sends them —
   flip `ai.nativeTools` in `src/config.ts`.

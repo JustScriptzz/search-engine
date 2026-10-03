@@ -18,7 +18,4 @@ console.log(`${CONFIG.name} listening on port ${server.port} (docs=${index.docCo
 console.log(`  UI      /`);
 console.log(`  search  /api/search?q=hello`);
 console.log(`  stats   /api/stats`);
-console.log(
-  `  agent   POST /api/chat {"message":"..."} — ${CONFIG.ai.provider} / ${CONFIG.ai.model}` +
-    (hasApiKey() ? "" : `  [no ${CONFIG.ai.tokenEnv}: answers fall back to the index]`),
-);
+console.log(`  agent   POST /api/chat {"message":"..."} — ${hasApiKey() ? "ready" : "no credentials, index-only answers"}`);

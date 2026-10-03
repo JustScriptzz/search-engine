@@ -22,11 +22,14 @@ describe("tokenizer", () => {
     expect(tokenize("the and of")).toEqual([]);
   });
 
-  test("drops web boilerplate tokens", () => {
-    const t = tokenize("https www example com page");
-    expect(t).not.toContain("https");
-    expect(t).not.toContain("com");
-    expect(t).toContain("example");
+  test("keeps domain-ish words: they are real query terms here", () => {
+    const t = tokenize("https www example com html page");
+    expect(t).toContain("html");
+    expect(t).toContain("www");
+  });
+
+  test("a multi-word query keeps every content term", () => {
+    expect(tokenize("html standards").sort()).toEqual(["html", "standards"]);
   });
 });
 

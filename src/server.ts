@@ -138,11 +138,9 @@ export function startServer(idx: InvertedIndex, port: number = CONFIG.server.por
             version: CONFIG.version,
             indexPath: INDEX_PATH,
             ai: {
-              provider: CONFIG.ai.provider,
-              model: CONFIG.ai.model,
-              baseUrl: CONFIG.ai.baseUrl,
-              configured: hasApiKey(),
-              nativeTools: CONFIG.ai.nativeTools,
+              // Deliberately opaque: the UI never advertises the model or vendor.
+              ready: hasApiKey(),
+              tools: ["search_index", "read_page", "index_stats"],
             },
           },
           { headers: cors },
