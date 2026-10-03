@@ -49,7 +49,12 @@ export function parseHtml(html: string, baseUrl: string): ParsedPage {
 
   // Density is measured against the FULL text, before truncation, otherwise a
   // capped article would always read as 100% links.
-  const fullText = decodeEntities(stripTags(stripped)).replace(/\s+/g, " ").trim();
+  const fullText = decodeEntities(stripTags(stripped))
+    // Strip markup leftovers that survive tag removal: arrows, pipes, bullets.
+    .replace(/->|=>|→/g, " ")
+    .replace(/[|*_~#>]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   const linkDensity = fullText.length > 0 ? Math.min(linkChars / fullText.length, 1) : 0;
   const text = fullText.slice(0, CONFIG.crawl.maxTextChars);
 

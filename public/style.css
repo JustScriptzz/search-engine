@@ -59,6 +59,10 @@ body {
   color: var(--text);
   font: 15px/1.55 var(--sans);
   -webkit-font-smoothing: antialiased;
+  /* nothing may push the page sideways on a phone */
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  -webkit-tap-highlight-color: transparent;
 }
 h1, h2, h3, p, ol, ul { margin: 0; }
 ol, ul { padding: 0; list-style: none; }
@@ -181,8 +185,8 @@ main { flex: 1; width: 100%; max-width: 1080px; margin: 0 auto; padding: 1.5rem 
 
 /* ---------- 5. results ---------- */
 .results-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
-.meta { color: var(--muted); font-size: .9rem; }
-.sortnote { font: .72rem var(--mono); color: var(--dim); white-space: nowrap; }
+.meta { color: var(--muted); font-size: .9rem; min-width: 0; overflow-wrap: anywhere; }
+.sortnote { font: .72rem var(--mono); color: var(--dim); white-space: nowrap; flex: none; }
 #geo-note { color: var(--accent-2); }
 
 .results { display: flex; flex-direction: column; gap: .65rem; }
@@ -317,18 +321,31 @@ main { flex: 1; width: 100%; max-width: 1080px; margin: 0 auto; padding: 1.5rem 
   .bar-right { grid-area: right; justify-self: end; }
   .hint-key { display: none; }
   .filters { padding-top: .7rem; }
+  /* stack the meta line instead of squeezing it to one word per line */
+  .results-head { flex-direction: column; align-items: flex-start; gap: .3rem; }
+  .sortnote { white-space: normal; }
 }
 @media (max-width: 560px) {
-  .bar { padding: .7rem .9rem; gap: .6rem; }
-  main { padding: 1rem .9rem 2.5rem; }
+  .bar { padding: .65rem .9rem; gap: .55rem; }
+  .bar .icon-btn { width: 40px; height: 40px; }
+  .ai-btn { padding: .55rem .8rem; min-height: 40px; }
+  main { padding: 1rem .9rem 2rem; }
   .brand-name { font-size: 1rem; }
+  .omni { height: 50px; padding: 0 .9rem; }
+  .omni input { font-size: 1rem; } /* 16px stops iOS zoom-on-focus */
   .chip { display: none; }
-  .ai-btn { padding: .5rem .7rem; }
-  .result { grid-template-columns: 1fr; padding: .9rem 1rem; }
-  .fav { display: none; }
   .ai-btn span { display: none; }
+  .overview { padding: .95rem 1rem; }
+  .overview-body { font-size: 1rem; }
+  .overview-sources a { font-size: .7rem; }
+  .result { grid-template-columns: 1fr; padding: .95rem 1rem; gap: 0; }
+  .fav { display: none; }
+  .r-title { font-size: 1.12rem; }
+  .r-snip { font-size: .95rem; }
+  .r-meta { gap: .4rem; }
   .drawer { width: 100%; }
-  .foot { font-size: .7rem; }
+  .foot { font-size: .72rem; padding: 1rem 1rem calc(1.6rem + env(safe-area-inset-bottom)); }
+  .composer { padding: .6rem .6rem calc(.6rem + env(safe-area-inset-bottom)); }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }

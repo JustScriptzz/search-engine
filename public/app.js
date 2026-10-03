@@ -265,7 +265,14 @@
       const data = await res.json();
       if (seq !== ovSeq) return; // a newer query already won
       ovBody.innerHTML = md(data.text || "");
+      const seenDomains = new Set();
       ovSources.innerHTML = (data.sources ?? [])
+        .filter((s) => {
+          const d = domainOf(s.url);
+          if (seenDomains.has(d)) return false;
+          seenDomains.add(d);
+          return true;
+        })
         .slice(0, 6)
         .map((s) => `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(domainOf(s.url))}</a>`)
         .join("");
