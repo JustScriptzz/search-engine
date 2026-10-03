@@ -1,6 +1,8 @@
 import { CONFIG } from "./config.ts";
 import { runAgent, type ChatTurn } from "./ai.ts";
+import { authorityBoost, computeAuthority, isCuratedRoot } from "./authority.ts";
 import { countryBoost, getClientIp, languageBoost, languagesForCountry, lookupCountry } from "./geo.ts";
+import { FAMOUS_SITES } from "./famous.ts";
 import { rejectDoc } from "./quality.ts";
 import { hasApiKey, keySource } from "./provider.ts";
 import { InvertedIndex } from "./index/invertedIndex.ts";
@@ -67,6 +69,7 @@ interface SearchOptions {
  *  (or crawled with an older config) can never surface junk. */
 function runSearch(idx: InvertedIndex, opts: SearchOptions) {
   const oversample = Math.min(Math.max(opts.limit * 6, 60), 400);
+  const authority = computeAuthority(idx);
   const seen = new Set<string>();
   const scored = idx
     .search(opts.query, oversample)
@@ -80,8 +83,14 @@ function runSearch(idx: InvertedIndex, opts: SearchOptions) {
       return true;
     })
     .map((h) => {
-      const boost = countryBoost(h.url, opts.countryCode) * languageBoost(h.lang, opts.countryCode);
-      return { ...h, domain: domainOf(h.url), score: round(h.score * boost) };
+      const host = domainOf(h.url);
+      const geo = countryBoost(h.url, opts.countryCode) * languageBoost(h.lang, opts.countryCode);
+      // Popularity: link-graph authority, with a floor for allowlisted roots so
+      // github.com always outranks github.blog.
+      const pageAuthority = authority.score.get(host) ?? 0;
+      const rank = Math.max(pageAuthority, isCuratedRoot(host, FAMOUS_HOST_SET) ? CONFIG.authority.curatedFloor : 0);
+      const pop = 1 + CONFIG.authority.weight * Math.sqrt(rank);
+      return { ...h, domain: host, score: round(h.score * geo * pop), authority: round(rank) };
     })
     .sort((a, b) => b.score - a.score);
 
@@ -110,6 +119,17 @@ function siteLookupNote(idx: InvertedIndex, query: string): string | null {
   if (idx.hasHost(q)) return null;
   return `${q}.com is not in this crawl — the results below are pages that mention "${q}". Add it to the seed list (src/config.ts) to index the site itself.`;
 }
+
+/** Allowlisted root domains, used for the authority floor. */
+const FAMOUS_HOST_SET = new Set<string>(
+  FAMOUS_SITES.map((s) => {
+    try {
+      return new URL(s.url).hostname.replace(/^www\./, "");
+    } catch {
+      return "";
+    }
+  }).filter(Boolean),
+);
 
 function parseLimit(raw: string | null): number {
   const n = parseInt(raw ?? "", 10);

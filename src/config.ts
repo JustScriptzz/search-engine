@@ -158,6 +158,16 @@ export const CONFIG = {
     maxLinkDensity: 0.45,
   },
 
+  authority: {
+    // Link-graph authority: how strongly a well-linked domain is promoted.
+    // weight 0 = off, ~1.5 = noticeable, 3 = dominant.
+    weight: 1.8,
+    damping: 0.85,
+    iterations: 25,
+    // Curated roots get a floor so a famous domain never sinks below noise.
+    curatedFloor: 0.55,
+  },
+
   bm25: {
     k1: 1.2,
     b: 0.75,
