@@ -343,6 +343,8 @@ main { flex: 1; width: 100%; max-width: 1080px; margin: 0 auto; padding: 1.5rem 
 
 /* ---------- 7. footer ---------- */
 .foot { display: flex; justify-content: center; gap: .5rem; flex-wrap: wrap; padding: 1.2rem 1.25rem 2rem; color: var(--dim); font: .76rem var(--mono); }
+.foot a { color: var(--dim); text-decoration: none; border-bottom: 1px solid var(--line-2); }
+.foot a:hover { color: var(--accent); border-color: var(--accent); }
 .dot-sep { opacity: .5; }
 
 /* ---------- 8. responsive ---------- */

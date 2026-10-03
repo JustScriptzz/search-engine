@@ -1,4 +1,6 @@
 import { statSync } from "node:fs";
+import { domainOf, round } from "./util.ts";
+import { handleV1, isV1 } from "./apiv1.ts";
 import { CONFIG } from "./config.ts";
 import { runAgent, type ChatTurn } from "./ai.ts";
 import { authorityBoost, computeAuthority, isCuratedRoot } from "./authority.ts";
@@ -52,14 +54,6 @@ function corsHeaders(): Record<string, string> {
   };
 }
 
-function domainOf(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return url;
-  }
-}
-
 interface SearchOptions {
   query: string;
   limit: number;
@@ -70,13 +64,17 @@ interface SearchOptions {
   deep?: boolean;
   /** Vertical filter: text | image | video | short. */
   vertical?: Vertical | null;
+  /** Results to skip before slicing, for the public API's pagination. */
+  offset?: number;
 }
 
 /** Multi-pass deep search, then the country/authority re-ranking and the
  *  quality gate. Deep search is the retrieval half of a DeepSearcher-style
  *  loop; the reflection half would be the agent, which is optional. */
 function runSearch(idx: InvertedIndex, opts: SearchOptions) {
-  const oversample = Math.min(Math.max(opts.limit * 6, 60), 400);
+  // Oversample so that paging past the first page still has candidates to score.
+  const want = (opts.offset ?? 0) + opts.limit;
+  const oversample = Math.min(Math.max(want * 6, 60), 400);
   const authority = computeAuthority(idx);
   const deep = deepSearch(idx, opts.query, { limit: oversample, deep: opts.deep });
   const seen = new Set<string>();
@@ -126,8 +124,9 @@ function runSearch(idx: InvertedIndex, opts: SearchOptions) {
 
   const filtered = opts.domain ? scored.filter((h) => h.domain === opts.domain || h.domain.endsWith(`.${opts.domain}`)) : scored;
 
+  const start = Math.max(0, opts.offset ?? 0);
   return {
-    hits: filtered.slice(0, opts.limit).map(({ domain: _domain, authority: _a, ...h }) => h),
+    hits: filtered.slice(start, start + opts.limit).map(({ domain: _domain, authority: _a, ...h }) => h),
     vertical: wanted,
     facets,
     total: filtered.length,
@@ -223,6 +222,26 @@ export function startServer(idx: InvertedIndex, port: number = CONFIG.server.por
       const cors = corsHeaders();
 
       if (req.method === "OPTIONS") return new Response(null, { headers: cors });
+
+      // ---- Public API: /api/v1/* ----
+      // Open (no key) and rate limited per IP. Everything it needs comes from
+      // deps, so it stays independent of the internal routes below.
+      if (isV1(url.pathname)) {
+        const clientIp = getClientIp(req);
+        const overrideCountry = (url.searchParams.get("country") ?? "").toUpperCase();
+        const countryCode =
+          /^[A-Z]{2}$/.test(overrideCountry)
+            ? overrideCountry
+            : (await lookupCountry(clientIp)).countryCode;
+        return handleV1(url.pathname, url, {
+          index: idx,
+          curatedHosts: FAMOUS_HOST_SET,
+          clientIp,
+          countryCode,
+          indexAgeHours,
+          build: buildCommit,
+        });
+      }
 
       // ---- API: search ----
       if (url.pathname === "/api/search") {
@@ -450,8 +469,4 @@ const deepParam = url.searchParams.get("deep");
       return new Response("Not found", { status: 404, headers: cors });
     },
   });
-}
-
-function round(n: number): number {
-  return Math.round(n * 1000) / 1000;
 }

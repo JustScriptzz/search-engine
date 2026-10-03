@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MiniSearch API — documentation</title>
+<meta name="description" content="Public JSON search API for MiniSearch: ranked web results, AI overviews and index stats. No key required.">
+<meta name="color-scheme" content="dark light">
+<link rel="stylesheet" href="/style.css">
+<style>
+  .doc { max-width: 860px; margin: 0 auto; padding: 2.5rem 1.25rem 5rem; }
+  .doc h1 { font-size: 1.9rem; margin: 0 0 .35rem; letter-spacing: -.02em; }
+  .doc .lede { color: var(--muted); margin: 0 0 2rem; line-height: 1.55; }
+  .doc h2 { font-size: 1.05rem; margin: 2.5rem 0 .6rem; letter-spacing: .02em; }
+  .doc p { line-height: 1.6; color: var(--text); }
+  .ep { border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); padding: 1.1rem 1.2rem; margin: 1rem 0; }
+  .ep-head { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: .7rem; }
+  .verb { font: 700 .68rem var(--mono); letter-spacing: .08em; padding: .18rem .5rem; border-radius: var(--r-sm); }
+  .verb.get { color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  .ep-path { font: 600 .95rem var(--mono); }
+  .ep-sum { color: var(--muted); font-size: .92rem; margin: 0 0 .8rem; line-height: 1.5; }
+  pre { background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: .85rem .95rem; overflow-x: auto; font: .82rem/1.6 var(--mono); margin: .6rem 0 0; }
+  table { width: 100%; border-collapse: collapse; margin: .6rem 0 0; font-size: .88rem; }
+  th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--dim); font: 600 .74rem var(--mono); text-transform: uppercase; letter-spacing: .06em; }
+  td code { font: .82rem var(--mono); color: var(--accent); }
+  .doc nav a { color: var(--accent); text-decoration: none; }
+  .doc nav a:hover { text-decoration: underline; }
+  .note { border-left: 2px solid var(--line-2); padding-left: .9rem; color: var(--muted); font-size: .9rem; line-height: 1.6; }
+  @media (max-width: 640px) { .doc { padding: 1.5rem .95rem 4rem; } table { font-size: .82rem; } th, td { padding: .45rem .4rem; } }
+</style>
+</head>
+<body>
+<header class="bar">
+  <a class="brand" href="/">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.5 15.5 21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span>MiniSearch</span>
+  </a>
+  <div class="bar-right">
+    <a class="chip" href="/api/v1">JSON index</a>
+  </div>
+</header>
+
+<main class="doc">
+  <h1>MiniSearch API</h1>
+  <p class="lede">
+    Ranked results from our own web crawl. Plain JSON over HTTP, no key, no account.
+    Rate limited to <strong>60 requests per minute per IP</strong>; the headers below tell you where you stand.
+  </p>
+
+  <nav>
+    <a href="#quickstart">Quickstart</a> · <a href="#search">Search</a> · <a href="#overview">Overview</a> · <a href="#stats">Stats</a> · <a href="#errors">Errors</a>
+  </nav>
+
+  <h2 id="quickstart">Quickstart</h2>
+  <pre>curl "https://minisearch.duckdns.org:6036/api/v1/search?q=how+does+bm25+work&amp;limit=3"</pre>
+  <pre>fetch("/api/v1/search?q=never+gonna+give+you+up")
+  .then((r) =&gt; r.json())
+  .then(({ results }) =&gt; results.forEach((r) =&gt; console.log(r.rank, r.url)));</pre>
+  <p class="note">
+    Every response is JSON and CORS is open, so you can call it straight from a browser.
+    <code>GET /api/v1</code> returns a machine-readable description of everything below.
+  </p>
+
+  <h2 id="search">Search</h2>
+  <div class="ep">
+    <div class="ep-head"><span class="verb get">GET</span><span class="ep-path">/api/v1/search</span></div>
+    <p class="ep-sum">Ranked results for a query. Supports paging, domain filters, verticals and per-country ranking.</p>
+    <table>
+      <tr><th>Parameter</th><th>Default</th><th>Notes</th></tr>
+      <tr><td><code>q</code></td><td>required</td><td>The query. A question is understood as one.</td></tr>
+      <tr><td><code>limit</code></td><td>10</td><td>1–50, clamped.</td></tr>
+      <tr><td><code>offset</code></td><td>0</td><td>Skip results. Use <code>nextOffset</code> from the previous page.</td></tr>
+      <tr><td><code>type</code></td><td>text</td><td><code>text</code>, <code>image</code>, <code>video</code> or <code>short</code>.</td></tr>
+      <tr><td><code>domain</code></td><td>—</td><td>Only this domain and its subdomains, e.g. <code>bbc.com</code>.</td></tr>
+      <tr><td><code>country</code></td><td>visitor</td><td>Two-letter code that biases local results and language.</td></tr>
+      <tr><td><code>deep</code></td><td>true</td><td>Multi-pass retrieval. <code>false</code> is faster, slightly worse.</td></tr>
+    </table>
+    <pre>{
+  "query": "how does bm25 work",
+  "tookMs": 41,
+  "total": 59,
+  "limit": 3,
+  "offset": 0,
+  "nextOffset": 3,
+  "country": "IT",
+  "vertical": "text",
+  "facets": [{ "domain": "en.wikipedia.org", "count": 7 }],
+  "results": [{
+    "rank": 1,
+    "url": "https://example.org/bm25",
+    "title": "BM25 explained",
+    "snippet": "…BM25 ranks by term frequency…",
+    "domain": "example.org",
+    "score": 0.245,
+    "type": "text",
+    "language": "en",
+    "wordCount": 812
+  }]
+}</pre>
+    <p class="note">
+      Vertical results carry <code>thumbnail</code>, <code>mediaUrl</code>, <code>provider</code>
+      and <code>durationSeconds</code> when the page publishes them.
+      <code>facets</code> lists the ten domains present on this page of results.
+    </p>
+  </div>
+
+  <h2 id="overview">AI overview</h2>
+  <div class="ep">
+    <div class="ep-head"><span class="verb get">GET</span><span class="ep-path">/api/v1/overview</span></div>
+    <p class="ep-sum">A short answer written from the crawl, with the sources it used.</p>
+    <table>
+      <tr><th>Parameter</th><th>Default</th><th>Notes</th></tr>
+      <tr><td><code>q</code></td><td>required</td><td>The question.</td></tr>
+      <tr><td><code>country</code></td><td>visitor</td><td>Two-letter code.</td></tr>
+    </table>
+    <pre>{
+  "query": "what is bm25",
+  "tookMs": 1204,
+  "mode": "model",
+  "answer": "BM25 is a ranking function… [source](https://example.org/bm25)",
+  "sources": [{ "title": "BM25 explained", "url": "https://example.org/bm25" }]
+}</pre>
+    <p class="note">
+      <code>mode</code> is <code>model</code> when the assistant wrote it and <code>extractive</code>
+      when we fell back to stitching the best matching passages. Check it if you need a guaranteed-fresh answer.
+    </p>
+  </div>
+
+  <h2 id="stats">Stats</h2>
+  <div class="ep">
+    <div class="ep-head"><span class="verb get">GET</span><span class="ep-path">/api/v1/stats</span></div>
+    <p class="ep-sum">Size of the index and how fresh it is.</p>
+    <pre>{ "docs": 896, "terms": 75212, "hosts": 214,
+  "verticals": { "text": 895, "image": 1, "video": 0, "short": 0 },
+  "version": "0.3.1", "build": "cdb637b", "indexAgeHours": 2.4 }</pre>
+  </div>
+
+  <h2 id="errors">Errors and limits</h2>
+  <table>
+    <tr><th>Status</th><th>Meaning</th></tr>
+    <tr><td><code>400</code></td><td>Missing or unusable parameter. The body says which.</td></tr>
+    <tr><td><code>404</code></td><td>No such endpoint — check <code>GET /api/v1</code>.</td></tr>
+    <tr><td><code>429</code></td><td>Over 60 requests a minute. Wait <code>retry-after</code> seconds.</td></tr>
+  </table>
+  <p class="note">
+    Rate headers on every response: <code>x-ratelimit-limit</code>, <code>x-ratelimit-remaining</code>,
+    <code>x-ratelimit-reset</code>. An empty <code>results</code> array is a success, not an error.
+  </p>
+</main>
+
+<footer class="foot">
+  <span>MiniSearch API</span>
+  <span class="dot-sep">·</span>
+  <span>no cookies, no analytics</span>
+</footer>
+</body>
+</html>

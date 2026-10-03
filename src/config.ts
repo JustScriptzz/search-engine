@@ -250,7 +250,17 @@ verticals: {
     discoveredPenalty: 0.3,
   },
 
-  ai: {
+  api: {
+    // Public JSON API at /api/v1 (open, no key). Fixed window per IP: enough for
+    // a demo or a side project, cheap enough that one runaway script cannot pin
+    // a core on a 1 GB box. Deep search is CPU-heavy, so the ceiling matters.
+    rateLimitPerMinute: 60,
+    maxLimit: 50,
+    // Keep /api/v1 out of the static file listing and out of search-engine crawls.
+    excludeFromCrawl: true,
+  },
+
+ai: {
     // Cogito (Decart) — OpenAI-compatible. text.pollinations.ai's text API is
     // deprecated, so the agent runs on Cogito's gpt-oss-120B weights.
     provider: "cogito",

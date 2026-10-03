@@ -28,12 +28,47 @@ bun src/cli.ts serve --port 3000             # UI at http://localhost:3000
 
 No `--seeds` file needed: the default seed list lives in `src/config.ts`.
 
-## HTTP API
+## Public API (`/api/v1`)
+
+Open, no key, JSON, CORS enabled. Documented for humans at **`/api.html`**, and the
+API describes itself at `GET /api/v1`.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/v1` | Machine-readable index of every endpoint and parameter |
+| `GET /api/v1/search?q=…` | Ranked results. `limit`, `offset`, `type`, `domain`, `country`, `deep` |
+| `GET /api/v1/overview?q=…` | Short AI-written answer plus the sources it used |
+| `GET /api/v1/stats` | Index size, verticals, version, build commit, index age |
+
+```bash
+curl 'localhost:3000/api/v1/search?q=how+does+bm25+work&limit=3&country=IT'
+```
+
+```json
+{
+  "query": "how does bm25 work", "tookMs": 41, "total": 59,
+  "limit": 3, "offset": 0, "nextOffset": 3, "country": "IT",
+  "facets": [{ "domain": "en.wikipedia.org", "count": 7 }],
+  "results": [{ "rank": 1, "url": "…", "title": "…", "snippet": "…",
+                "domain": "…", "score": 0.245, "type": "text" }]
+}
+```
+
+Rate limited to **60 requests/minute per IP** (`CONFIG.api.rateLimitPerMinute`).
+Every response carries `x-ratelimit-limit`, `x-ratelimit-remaining` and
+`x-ratelimit-reset`; over the limit is a `429` with `retry-after`. An empty
+`results` array is a success, not an error.
+
+## Internal HTTP API
+
+Used by the web UI; the AI agent and crawl diagnostics stay off the public surface
+because they spend model quota per caller or expose how the crawler is doing.
 
 | Route | Purpose |
 | --- | --- |
 | `GET /api/search?q=…&limit=10&country=DE` | Ranked hits + timing + resolved country |
-| `GET /api/stats` | doc/term counts, version, AI provider status |
+| `GET /api/stats` | doc/term counts, version, build, index age, AI provider status |
+| `GET /api/doctor` | Index composition + which seed hosts we can still reach |
 | `POST /api/chat` | Agent. Body `{message, history?, country?}` → **SSE** events |
 | `GET /` | Web UI (search + AI chat) |
 
