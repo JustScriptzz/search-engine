@@ -24,15 +24,26 @@ const SHORT_HOSTS = ["tiktok.com", "instagram.com", "snapchat.com", "reels.faceb
 const IMAGE_EXT = /\.(jpe?g|png|gif|webp|avif|bmp)(\?|$)/i;
 const VIDEO_EXT = /\.(mp4|webm|mov|m3u8)(\?|$)/i;
 
-function meta(html: string, prop: string): string | undefined {
-  // Covers <meta property="og:x"> and <meta name="twitter:x">
+/** Content of a <meta> tag by property/name/itemprop.
+ *
+ *  Quote handling matters: content="Rick Astley's 1987 hit" must not be cut at
+ *  the apostrophe, so each quoting style is matched on its own. The property may
+ *  appear before or after the content attribute. */
+export function metaContent(html: string, prop: string): string {
+  const attr = `(?:property|name|itemprop)=["']${prop}["']`;
   const re = new RegExp(
-    `<meta[^>]+(?:property|name|itemprop)=["']${prop}["'][^>]*content=["']([^"']*)["']|<meta[^>]+content=["']([^"']*)["'][^>]*(?:property|name|itemprop)=["']${prop}["']`,
+    `<meta[^>]*${attr}[^>]*content="([^"]*)"` +
+      `|<meta[^>]*${attr}[^>]*content='([^']*)'` +
+      `|<meta[^>]*content="([^"]*)"[^>]*${attr}` +
+      `|<meta[^>]*content='([^']*)'[^>]*${attr}`,
     "i",
   );
   const m = re.exec(html);
-  const v = (m?.[1] ?? m?.[2] ?? "").trim();
-  return v || undefined;
+  return (m?.[1] ?? m?.[2] ?? m?.[3] ?? m?.[4] ?? "").trim();
+}
+
+function meta(html: string, prop: string): string | undefined {
+  return metaContent(html, prop) || undefined;
 }
 
 /** Best-effort "HH:MM:SS" / "MM:SS" -> seconds. */

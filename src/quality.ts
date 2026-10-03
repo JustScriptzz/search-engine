@@ -100,14 +100,14 @@ export interface RejectReason {
 }
 
 /** Why a stored document must not be shown (empty object = keep it). */
-export function rejectDoc(doc: { url: string; text: string; lang?: string; wordCount?: number; linkDensity?: number; siteCard?: boolean }): RejectReason {
+export function rejectDoc(doc: { url: string; text: string; lang?: string; wordCount?: number; linkDensity?: number; siteCard?: boolean; mediaCard?: boolean }): RejectReason {
   const reason: RejectReason = {};
   if (isJunkUrl(doc.url)) reason.junk = true;
   // A site card is a deliberately minimal record for an allowlisted homepage,
   // so length/link-density rules do not apply to it. Curated hosts get the
   // same exemption: their homepages are link-heavy by design.
-  const curated = doc.siteCard || isFamousHost(hostnameOf(doc.url));
-  if (!doc.siteCard) {
+  const curated = doc.siteCard || doc.mediaCard || isFamousHost(hostnameOf(doc.url));
+  if (!doc.siteCard && !doc.mediaCard) {
     const words = doc.wordCount ?? doc.text.split(/\s+/).filter(Boolean).length;
     if (words < CONFIG.quality.minWords || isLowQualityText(doc.text)) reason.lowQuality = true;
   }

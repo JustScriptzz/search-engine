@@ -7,6 +7,8 @@ export interface CrawledDoc {
   linkDensity?: number; // share of text that was link labels (0..1)
   siteCard?: boolean; // minimal "site card" for an allowlisted famous homepage
   stub?: boolean; // allowlist entry whose page could not be fetched
+  /** Video/image indexed from its metadata (title + description + thumbnail). */
+  mediaCard?: boolean;
   /** Vertical classification from page metadata (article/image/video/short). */
   media?: {
     type: "text" | "image" | "video" | "short";

@@ -203,7 +203,11 @@ export async function crawl(
             parsed.text.length < CONFIG.crawl.minTextChars ||
             words < 30 ||
             parsed.linkDensity > CONFIG.quality.maxLinkDensity;
-          if (thin && !cardable) {
+          // A video/image page IS its metadata: title + description + thumbnail.
+          // These stay indexable even when the body is a link farm, which is
+          // why searching a video's title can now actually find it.
+          const mediaCard = thin && parsed.media.type !== "text" && (parsed.title.length > 0 || parsed.description.length > 0);
+          if (thin && !cardable && !mediaCard) {
             errors++;
             continue;
           }
@@ -215,10 +219,11 @@ export async function crawl(
             id: hash(norm),
             url: norm,
             title: parsed.title,
-            text: thin ? siteCardText(parsed, norm) : parsed.text,
+            text: mediaCard ? mediaCardText(parsed, norm) : thin ? siteCardText(parsed, norm) : parsed.text,
             lang: parsed.lang,
             linkDensity: parsed.linkDensity,
             siteCard: thin,
+            mediaCard,
             media: parsed.media,
             outlinks: parsed.links,
             fetchedAt: new Date().toISOString(),
@@ -290,6 +295,19 @@ function siteCardText(parsed: { title: string; text: string }, url: string): str
   const body = sentences.slice(0, 4).join(" ");
   const host = safeHost(url);
   return `${parsed.title} — ${host}. ${body}`.trim();
+}
+
+/** Video/image record: the page's own title and description, repeated so the
+ *  title terms carry weight, plus the provider name. */
+function mediaCardText(
+  parsed: { title: string; description: string; media: { provider?: string; type: string } },
+  url: string,
+): string {
+  const provider = parsed.media.provider ?? safeHost(url);
+  return [parsed.title, parsed.title, parsed.description, `${parsed.media.type} ${provider}`]
+    .filter(Boolean)
+    .join(". ")
+    .trim();
 }
 
 function hash(s: string): string {

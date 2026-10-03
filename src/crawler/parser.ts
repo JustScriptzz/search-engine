@@ -1,5 +1,5 @@
 import { CONFIG } from "../config.ts";
-import { classify, type MediaInfo } from "../media.ts";
+import { classify, metaContent, type MediaInfo } from "../media.ts";
 
 export interface ParsedPage {
   title: string;
@@ -10,6 +10,8 @@ export interface ParsedPage {
   linkDensity: number;
   /** What this page is: article, image, video or short-form. */
   media: MediaInfo;
+  /** og:description / meta description — the page's own summary. */
+  description: string;
 }
 
 export function parseHtml(html: string, baseUrl: string): ParsedPage {
@@ -75,12 +77,23 @@ export function parseHtml(html: string, baseUrl: string): ParsedPage {
     lang,
     linkDensity,
     media: classify(decoded, baseUrl),
+    description: firstMatch(decoded, ["og:description", "twitter:description", "description"]),
     links: [...new Set(links)].slice(0, CONFIG.crawl.maxLinksPerPage),
   };
 }
 
 function stripTags(html: string): string {
   return html.replace(/<[^>]+>/g, " ");
+}
+
+/** First non-empty meta description from a list of candidate keys. */
+function firstMatch(html: string, props: string[]): string {
+  for (const prop of props) {
+    const raw = metaContent(html, prop);
+    const value = stripTags(decodeEntities(raw)).replace(/\s+/g, " ").trim();
+    if (value) return value.slice(0, 600);
+  }
+  return "";
 }
 
 export function normalizeUrl(urlStr: string): string | null {

@@ -82,6 +82,7 @@ export const CONFIG = {
     // concrete media pages so the Images / Videos / Shorts verticals have
     // something to show (classification comes from page metadata)
     "https://www.youtube.com/watch?v=aqz-KE-bpKQ", // Big Buck Bunny (CC)
+    "https://www.youtube.com/watch?v=dQw4w9WgXcQ", // Never Gonna Give You Up
     "https://www.youtube.com/watch?v=jNQXAC9IVRw",
     "https://vimeo.com/76979871",
     "https://commons.wikimedia.org/wiki/File:Earth_from_SLR-4.jpg",
