@@ -1,3 +1,4 @@
+import { statSync } from "node:fs";
 import { CONFIG } from "./config.ts";
 import { runAgent, type ChatTurn } from "./ai.ts";
 import { authorityBoost, computeAuthority, isCuratedRoot } from "./authority.ts";
@@ -154,6 +155,48 @@ function siteLookupNote(idx: InvertedIndex, query: string): string | null {
 const PROBE_TTL = 10 * 60 * 1000;
 const probeCache = new Map<string, { at: number; value: any }>();
 
+/** Which commit is actually running. Deploys happen by git pull on restart, so
+ *  without this you cannot tell whether a fix is live or the server is still on
+ *  the code it booted with. */
+let buildCommitCache: Promise<string | null> | null = null;
+function buildCommit(): Promise<string | null> {
+  if (!buildCommitCache) {
+    buildCommitCache = (async () => {
+      try {
+        const head = (await Bun.file(".git/HEAD").text()).trim();
+        const m = /^ref:\s*(refs\/heads\/.+)$/.exec(head);
+        if (!m) return /^[0-9a-f]{7,40}$/.test(head) ? head.slice(0, 7) : null;
+        const ref = m[1].trim();
+        try {
+          const sha = (await Bun.file(`.git/${ref}`).text()).trim();
+          if (/^[0-9a-f]{7,40}$/.test(sha)) return sha.slice(0, 7);
+        } catch {
+          // not a loose ref
+        }
+        // A shallow or packed clone keeps it in packed-refs instead.
+        const packed = await Bun.file(".git/packed-refs").text().catch(() => "");
+        const line = packed.split("\n").find((l) => l.trim().endsWith(` ${ref}`));
+        const sha = (line ?? "").trim().split(/\s+/)[0] ?? "";
+        return /^[0-9a-f]{7,40}$/.test(sha) ? sha.slice(0, 7) : null;
+      } catch {
+        return null;
+      }
+    })();
+  }
+  return buildCommitCache;
+}
+
+/** Hours since the index file was last written. Crawl-time behaviour (media
+ *  cards, seed priority) only reaches the corpus when a crawl has run, so this
+ *  is the difference between "the fix is broken" and "nothing has re-crawled". */
+function indexAgeHours(): number | null {
+  try {
+    return Math.round(((Date.now() - statSync(INDEX_PATH).mtimeMs) / 3_600_000) * 10) / 10;
+  } catch {
+    return null;
+  }
+}
+
 const FAMOUS_HOST_SET = new Set<string>(
   FAMOUS_SITES.map((s) => {
     try {
@@ -257,6 +300,12 @@ const deepParam = url.searchParams.get("deep");
             ...idx.stats(),
             name: CONFIG.name,
             version: CONFIG.version,
+            // Which commit is live, and how old the corpus is. A ranking fix is
+            // live the moment the server restarts; a crawl-time fix is not, until
+            // a crawl has actually run.
+            build: await buildCommit(),
+            indexAgeHours: indexAgeHours(),
+            crawlStaleHours: CONFIG.crawl.staleHours,
             indexPath: INDEX_PATH,
             ai: {
               // Deliberately opaque: the UI never advertises the model or vendor.
@@ -327,6 +376,8 @@ const deepParam = url.searchParams.get("deep");
           {
             docs: idx.docCount,
             terms: idx.index.size,
+            indexAgeHours: indexAgeHours(),
+            stale: (indexAgeHours() ?? 0) > CONFIG.crawl.staleHours,
             verticals,
             topHosts: [...perHost.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20),
             probes: probe,

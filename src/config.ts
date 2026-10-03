@@ -5,7 +5,7 @@ const FAMOUS_SITE_URLS = FAMOUS_SITES.map((s) => s.url);
 
 export const CONFIG = {
   name: "MiniSearch",
-  version: "0.3.0",
+  version: "0.3.1",
 
   server: {
     port: 3000,
@@ -103,6 +103,11 @@ export const CONFIG = {
     sameHostOnly: false,
     // Stops one link-heavy seed from eating the whole page budget.
     maxPagesPerHost: 6,
+    // Re-crawl when the index file is older than this (sync.sh honours the same
+    // threshold via STALE_HOURS). Crawl-time rules only reach the corpus when a
+    // crawl runs, so this is how a fix becomes searchable without deleting
+    // data/index.json by hand.
+    staleHours: 6,
     // Famous-site roots get their own slow pass first (see bootstrapFamous),
     // so a link-heavy wide crawl cannot starve them.
     timeoutMs: 25_000,
