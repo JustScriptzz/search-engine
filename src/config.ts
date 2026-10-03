@@ -55,7 +55,12 @@ export const CONFIG = {
     "https://www.nasa.gov",
     "https://phys.org",
     "https://www.nature.com/news",
-    "https://arstechnica.com/science",
+    "https://arxiv.org/list/cs.SE/recent",
+    // named places people actually search for ("how to x on github", "python docs")
+    "https://www.youtube.com",
+    "https://www.python.org",
+    "https://doc.rust-lang.org/book/",
+    "https://go.dev/doc/",
     // reference (deliberately a minority)
     "https://en.wikipedia.org/wiki/Search_engine",
     "https://www.britannica.com",
@@ -75,8 +80,10 @@ export const CONFIG = {
     sameHostOnly: false,
     // Link-shaped noise we never want in the index.
     blockedHosts: [
-      "youtube.com", "youtu.be", "x.com", "twitter.com", "facebook.com", "instagram.com",
-      "linkedin.com", "tiktok.com", "pinterest.com", "reddit.com", "discord.com",
+      // Login-walled social networks: no public text to index.
+      "x.com", "twitter.com", "facebook.com", "instagram.com", "linkedin.com",
+      "tiktok.com", "pinterest.com", "discord.com", "reddit.com",
+      // Ad and tracking infrastructure.
       "doubleclick.net", "googlesyndication.com", "adservice.google.com",
       "aboutads.info", "adsrvr.org", "amazon-adsystem.com",
     ] as string[],
@@ -110,6 +117,10 @@ export const CONFIG = {
     // Query-term coordination: multiply score by (matched/total)^exponent so a
     // page matching every query term beats one that repeats a single term.
     coordination: 1.6,
+    // Field weights applied on top of BM25: a term in the page title counts
+    // more than in the body, and matching the site's own host counts most, so
+    // "youtube" surfaces youtube.com rather than pages that mention it.
+    field: { title: 1.2, host: 2.2, phrase: 0.8 },
   },
 
   tokenizer: {

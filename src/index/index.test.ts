@@ -60,6 +60,23 @@ describe("index + BM25", () => {
     expect(hits[0].matchedTerms).toBe(2);
   });
 
+  test("a site whose domain matches the query outranks pages that mention it", () => {
+    const idx = new InvertedIndex();
+    // mentions youtube in the body only
+    idx.addDocument(doc({ id: "mention", contentHash: "m", title: "Permissions & Licensing", text: "Share on YouTube or embed the player. ".repeat(12) }));
+    // *is* youtube
+    idx.addDocument(doc({ id: "site", contentHash: "y", url: "https://www.youtube.com/watch?v=abc", title: "YouTube", text: "Watch videos, share and create. ".repeat(12) }));
+    const hits = idx.search("youtube", 5);
+    expect(hits[0].id).toBe("site");
+  });
+
+  test("title matches outrank body mentions", () => {
+    const idx = new InvertedIndex();
+    idx.addDocument(doc({ id: "body", contentHash: "b", title: "Unrelated page", text: "rust ownership rules explained ".repeat(10) }));
+    idx.addDocument(doc({ id: "title", contentHash: "t", title: "Rust ownership", text: "some other subject entirely ".repeat(10) }));
+    expect(idx.search("rust ownership", 5)[0].id).toBe("title");
+  });
+
   test("dedups identical content", () => {
     const idx = new InvertedIndex();
     const base = { url: "https://a.test/", title: "Hi", text: "unique content words here hello world", wordCount: 5 };

@@ -2,10 +2,16 @@ import { describe, expect, test } from "bun:test";
 import { isJunkUrl, isLatinLanguageCode, isLowQualityText, rejectDoc } from "./quality.ts";
 
 describe("quality gate", () => {
-  test("drops social, video and ad hosts", () => {
-    expect(isJunkUrl("https://www.youtube.com/@arstechnica")).toBe(true);
+  test("drops login-walled social hosts and ad infrastructure", () => {
     expect(isJunkUrl("https://twitter.com/someone")).toBe(true);
+    expect(isJunkUrl("https://www.instagram.com/pic")).toBe(true);
     expect(isJunkUrl("https://aboutads.info/")).toBe(true);
+  });
+
+  test("keeps crawlable video and docs sites", () => {
+    // robots.txt allows / on these; they are legitimate search targets.
+    expect(isJunkUrl("https://www.youtube.com/watch?v=abc")).toBe(false);
+    expect(isJunkUrl("https://developer.mozilla.org/en-US/docs/Web")).toBe(false);
   });
 
   test("drops account and legal pages", () => {
@@ -51,10 +57,11 @@ describe("quality gate", () => {
     expect(isLowQualityText("A detailed article body with real prose about markets and policy, written for a reader who wants to understand what happened and why.")).toBe(false);
   });
 
-  test("rejects a YouTube homepage stored in the index", () => {
-    const doc = { url: "https://www.youtube.com/", text: "About Press Copyright Contact us Creators Advertise Developers Terms Privacy Policy".repeat(3) };
-    const bad = rejectDoc(doc);
-    expect(bad.junk).toBe(true);
-    expect(bad.lowQuality).toBe(true);
+  test("rejects a nav-only page even on an allowed host", () => {
+    const doc = {
+      url: "https://www.youtube.com/",
+      text: "About Press Copyright Contact us Creators Advertise Developers Terms Privacy Policy & Safety".repeat(3),
+    };
+    expect(rejectDoc(doc).lowQuality).toBe(true);
   });
 });
