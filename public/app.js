@@ -24,7 +24,7 @@
     "space exploration", "world news", "climate", "html elements",
   ];
 
-  const state = { hits: [], sel: -1, domain: "", limit: 10, country: "XX", history: [], busy: false };
+  const state = { hits: [], sel: -1, domain: "", limit: 10, country: "XX", history: [], busy: false, deep: true };
 
   /* ---------------------------------------------------------- utilities */
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
@@ -171,7 +171,7 @@
     if (reset) { state.hits = []; state.sel = -1; }
     el.more.hidden = true;
 
-    const params = new URLSearchParams({ q, limit: String(state.limit) });
+    const params = new URLSearchParams({ q, limit: String(state.limit), deep: state.deep ? "1" : "0" });
     if (state.domain) params.set("domain", state.domain);
     try {
       const res = await fetch(`/api/search?${params}`);
@@ -180,6 +180,16 @@
         el.geo.textContent = ` · ${state.country}`;
       } else el.geo.textContent = "";
       state.country = data.country ?? state.country;
+      const deepNote = $("#deep-note");
+      if (deepNote && data.deep) {
+        const passes = data.deep.passes.length;
+        const extra = data.deep.expandedTerms.length;
+        deepNote.innerHTML =
+          passes > 1
+            ? ` · deep search ${passes} passes${extra ? ` (+${extra} terms)` : ""}`
+            : "";
+        deepNote.title = data.deep.passes.map((p) => `${p.label}: "${p.query}" → ${p.results}`).join("\n");
+      }
       el.meta.textContent =
         `${data.count} result${data.count === 1 ? "" : "s"}${data.domain ? ` on ${data.domain}` : ""} in ${data.tookMs}ms` +
         (data.total > data.count ? ` · ${data.total} matched` : "");

@@ -158,6 +158,16 @@ export const CONFIG = {
     maxLinkDensity: 0.45,
   },
 
+  deepSearch: {
+    // Multi-pass retrieval: decompose, expand from the top hits, fuse.
+    // Pure classical IR — no model call, so no extra latency or cost.
+    enabled: true,
+    subQueries: true,
+    expansionTerms: 6,
+    maxPasses: 4,
+    rrfK: 60,
+  },
+
   authority: {
     // Link-graph authority: how strongly a well-linked domain is promoted.
     // weight 0 = off, ~1.5 = noticeable, 3 = dominant.

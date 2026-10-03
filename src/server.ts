@@ -2,6 +2,7 @@ import { CONFIG } from "./config.ts";
 import { runAgent, type ChatTurn } from "./ai.ts";
 import { authorityBoost, computeAuthority, isCuratedRoot } from "./authority.ts";
 import { buildOverview } from "./overview.ts";
+import { deepSearch } from "./deepsearch.ts";
 import { countryBoost, getClientIp, languageBoost, languagesForCountry, lookupCountry } from "./geo.ts";
 import { FAMOUS_SITES } from "./famous.ts";
 import { rejectDoc } from "./quality.ts";
@@ -63,17 +64,19 @@ interface SearchOptions {
   countryCode: string;
   /** Restrict results to one registrable-ish domain, e.g. "bbc.com". */
   domain?: string;
+  /** Run multi-pass expansion; ?deep=0 forces a single BM25 pass. */
+  deep?: boolean;
 }
 
-/** BM25 hits with the visitor's country boost, plus domain facets.
- *  The quality gate runs here too, so an index built before a filter existed
- *  (or crawled with an older config) can never surface junk. */
+/** Multi-pass deep search, then the country/authority re-ranking and the
+ *  quality gate. Deep search is the retrieval half of a DeepSearcher-style
+ *  loop; the reflection half would be the agent, which is optional. */
 function runSearch(idx: InvertedIndex, opts: SearchOptions) {
   const oversample = Math.min(Math.max(opts.limit * 6, 60), 400);
   const authority = computeAuthority(idx);
+  const deep = deepSearch(idx, opts.query, { limit: oversample, deep: opts.deep });
   const seen = new Set<string>();
-  const scored = idx
-    .search(opts.query, oversample)
+  const scored = deep.hits
     .filter((h) => {
       const doc = idx.docs.get(h.id);
       if (!doc) return false;
@@ -105,9 +108,14 @@ function runSearch(idx: InvertedIndex, opts: SearchOptions) {
   const filtered = opts.domain ? scored.filter((h) => h.domain === opts.domain || h.domain.endsWith(`.${opts.domain}`)) : scored;
 
   return {
-    hits: filtered.slice(0, opts.limit).map(({ domain: _domain, ...h }) => h),
+    hits: filtered.slice(0, opts.limit).map(({ domain: _domain, authority: _a, ...h }) => h),
     facets,
     total: filtered.length,
+    deep: {
+      passes: deep.passes.map((p) => ({ label: p.label, query: p.query, results: p.results })),
+      expandedTerms: deep.expandedTerms,
+      subQueries: deep.subQueries,
+    },
   };
 }
 
@@ -159,7 +167,14 @@ export function startServer(idx: InvertedIndex, port: number = CONFIG.server.por
           ? { country: override, countryCode: override, fromCache: false }
           : await lookupCountry(getClientIp(req));
         const t0 = Date.now();
-        const { hits, facets, total } = runSearch(idx, { query: q, limit, countryCode: geo.countryCode, domain });
+        const deepParam = url.searchParams.get("deep");
+        const { hits, facets, total, deep } = runSearch(idx, {
+          query: q,
+          limit,
+          countryCode: geo.countryCode,
+          domain,
+          deep: deepParam === null ? undefined : deepParam !== "0",
+        });
         return Response.json(
           {
             query: q,
@@ -172,6 +187,7 @@ export function startServer(idx: InvertedIndex, port: number = CONFIG.server.por
             country: geo.country,
             countryCode: geo.countryCode,
             countryLanguages: languagesForCountry(geo.countryCode),
+            deep,
             note: domain ? null : siteLookupNote(idx, q),
           },
           { headers: cors },
