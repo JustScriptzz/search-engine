@@ -183,6 +183,7 @@
       el.meta.textContent =
         `${data.count} result${data.count === 1 ? "" : "s"}${data.domain ? ` on ${data.domain}` : ""} in ${data.tookMs}ms` +
         (data.total > data.count ? ` · ${data.total} matched` : "");
+      loadOverview(q);
       el.results.innerHTML = "";
       state.hits = data.hits;
       if (data.note) {
@@ -233,6 +234,34 @@
         e.preventDefault();
         window.open(state.hits[state.sel].url, "_blank", "noopener");
       }
+    }
+  }
+
+  /* ---------------------------------------------------------- AI overview */
+  const ov = $("#overview");
+  const ovBody = $("#overview-body");
+  const ovSources = $("#overview-sources");
+  let ovSeq = 0;
+
+  /** Fire-and-forget: the answer panel streams in after the results do. */
+  async function loadOverview(query) {
+    const seq = ++ovSeq;
+    ov.hidden = false;
+    ovBody.innerHTML = `<span class="thinking"><i></i><i></i><i></i></span>`;
+    ovSources.innerHTML = "";
+    try {
+      const res = await fetch(`/api/overview?q=${encodeURIComponent(query)}`);
+      if (!res.ok) throw new Error("overview failed");
+      const data = await res.json();
+      if (seq !== ovSeq) return; // a newer query already won
+      ovBody.innerHTML = md(data.text || "");
+      ovSources.innerHTML = (data.sources ?? [])
+        .slice(0, 6)
+        .map((s) => `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(domainOf(s.url))}</a>`)
+        .join("");
+    } catch {
+      if (seq !== ovSeq) return;
+      ov.hidden = true;
     }
   }
 

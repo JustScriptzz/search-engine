@@ -1,4 +1,5 @@
 import { tokenize } from "./tokenizer.ts";
+import { analyzeQuery, coordinationScore, coordinationWeights } from "../query.ts";
 import { CONFIG } from "../config.ts";
 import type { CrawledDoc, IndexStats, SearchHit } from "../types.ts";
 
@@ -27,6 +28,13 @@ function hostTokens(url: string): Set<string> {
   const tokens = new Set<string>(parts);
   if (parts.length > 1) tokens.add(parts[parts.length - 2]); // "bbc" from bbc.com
   return tokens;
+}
+
+/** True when this page *is* the site the query names: "google" matches
+ *  google.com but not issuetracker.google.com. */
+function isExactHost(url: string, term: string): boolean {
+  const host = hostnameOf(url);
+  return host === term || host.startsWith(`${term}.`);
 }
 
 export class InvertedIndex {
@@ -79,6 +87,26 @@ export class InvertedIndex {
     return true;
   }
 
+  /** Drop a document and every posting that referenced it (used by `prune`). */
+  remove(docId: string): boolean {
+    const doc = this.docs.get(docId);
+    if (!doc) return false;
+    this.docs.delete(docId);
+    this.hosts.delete(hostnameOf(doc.url));
+    const len = this.docLens.get(docId);
+    if (len !== undefined) {
+      this.docLens.delete(docId);
+      this.totalLen -= len;
+    }
+    this.titleTerms.delete(docId);
+    this.hostTerms.delete(docId);
+    for (const [term, list] of this.index) {
+      if (!list.delete(docId)) continue;
+      if (list.size === 0) this.index.delete(term);
+    }
+    return true;
+  }
+
   private idf(term: string): number {
     const df = this.index.get(term)?.size ?? 0;
     if (df === 0) return 0;
@@ -86,13 +114,21 @@ export class InvertedIndex {
     return Math.log(1 + (N - df + 0.5) / (df + 0.5));
   }
 
+  /** True when any indexed document contains this token. */
+  hasTerm(term: string): boolean {
+    return this.index.has(term);
+  }
+
   search(query: string, topK = 10): SearchHit[] {
-    const terms = tokenize(query);
+    const plan = analyzeQuery(query);
+    const terms = plan.terms;
     if (terms.length === 0 || this.docCount === 0) return [];
+
     const avgLen = this.avgDocLen || 1;
     const scores = new Map<string, number>();
-    const matched = new Map<string, number>();
+    const matchedSets = new Map<string, Set<string>>();
     const unique = [...new Set(terms)];
+    const weights = coordinationWeights(plan, (t) => this.index.has(t));
 
     for (const term of unique) {
       const list = this.index.get(term);
@@ -103,32 +139,25 @@ export class InvertedIndex {
         const tf = posting.tf;
         const denom = tf + K1 * (1 - B + (B * dl) / avgLen);
         scores.set(docId, (scores.get(docId) ?? 0) + idf * ((tf * (K1 + 1)) / denom));
-        matched.set(docId, (matched.get(docId) ?? 0) + 1);
+        let set = matchedSets.get(docId);
+        if (!set) matchedSets.set(docId, (set = new Set()));
+        set.add(term);
       }
     }
 
-    /** True when this page *is* the site the query names: query "google" matches
- *  google.com but not issuetracker.google.com. */
-function isExactHost(url: string, term: string): boolean {
-  try {
-    const host = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
-    return host === term || host.startsWith(`${term}.`);
-  } catch {
-    return false;
-  }
-}
-    const total = unique.length || 1;
-    const queryPhrase = query.toLowerCase().replace(/\s+/g, " ").trim();
+    const queryPhrase = plan.subject.toLowerCase();
 
     return [...scores.entries()]
       .map(([docId, score]) => {
         const doc = this.docs.get(docId)!;
-        const m = matched.get(docId) ?? 0;
-        const coord = Math.pow(m / total, COORD);
+        const matched = matchedSets.get(docId) ?? new Set<string>();
 
-        // Field weighting: a term in the title matters more than in the body,
-        // and matching the site's own domain matters most (searching "youtube"
-        // should surface youtube.com, not pages that merely mention it).
+        // Coordination: fraction of the query's weighted terms this doc covers.
+        // Absent-from-corpus terms weigh less, so questions are not penalised.
+        const coord = Math.pow(coordinationScore(weights, matched), COORD);
+
+        // Field weighting: title and the site's own domain matter more than a
+        // mention buried in the body.
         const title = this.titleTerms.get(docId) ?? new Set<string>();
         const host = this.hostTerms.get(docId) ?? new Set<string>();
         let titleHits = 0;
@@ -139,19 +168,15 @@ function isExactHost(url: string, term: string): boolean {
           if (host.has(t)) hostHits++;
           if (isExactHost(doc.url, t)) exactHits++;
         }
-        const titleFactor = 1 + (titleHits / total) * FIELD.title;
-        // Subdomain matches count for less: google.com should beat
-        // issuetracker.google.com when someone searches "google".
-        const hostFactor =
-          1 + (exactHits / total) * FIELD.host + (hostHits / total) * FIELD.subdomainHost;
+        const titleFactor = 1 + (titleHits / unique.length) * FIELD.title;
+        const hostFactor = 1 + (exactHits / unique.length) * FIELD.host + (hostHits / unique.length) * FIELD.subdomainHost;
         const phraseFactor =
-          queryPhrase.length > 3 && doc.title.toLowerCase().includes(queryPhrase) ? FIELD.phrase : 1;
+          queryPhrase.length > 3 && doc.title.toLowerCase().includes(queryPhrase) ? FIELD.phrase + 1 : 1;
 
         return {
           docId,
-          raw: score,
           score: score * coord * titleFactor * hostFactor * phraseFactor,
-          matchedTerms: m,
+          matchedTerms: matched.size,
         };
       })
       .sort((a, b) => b.score - a.score || b.matchedTerms - a.matchedTerms)
@@ -177,35 +202,16 @@ function isExactHost(url: string, term: string): boolean {
     return this.hosts.has(hostname.toLowerCase().replace(/^www\./, ""));
   }
 
-  /** Every host in the index, e.g. "youtube.com" -> true. Used to tell a user
-   *  that the site they searched for simply isn't in our crawl. */
+  /** Any host token match, e.g. "youtube" matches youtube.com. */
   hasHost(host: string): boolean {
     const needle = host.toLowerCase().replace(/^www\./, "");
     if (needle.includes(".")) {
-      for (const tokens of this.hostTerms.values()) {
-        if (tokens.has(needle.split(".")[0])) return true;
-      }
+      const label = needle.split(".")[0];
+      for (const tokens of this.hostTerms.values()) if (tokens.has(label)) return true;
       return false;
     }
     for (const tokens of this.hostTerms.values()) if (tokens.has(needle)) return true;
     return false;
-  }
-
-  /** Drop a document and every posting that referenced it (used by `prune`). */
-  remove(docId: string): boolean {
-    const doc = this.docs.get(docId);
-    if (!doc) return false;
-    this.docs.delete(docId);
-    const len = this.docLens.get(docId);
-    if (len !== undefined) {
-      this.docLens.delete(docId);
-      this.totalLen -= len;
-    }
-    for (const [term, list] of this.index) {
-      if (!list.delete(docId)) continue;
-      if (list.size === 0) this.index.delete(term);
-    }
-    return true;
   }
 
   stats(): IndexStats {
@@ -256,9 +262,7 @@ export function makeSnippet(text: string, queryTerms: string[], windowWords = 34
   if (words.length === 0) return "";
   const lower = words.map((w) => w.toLowerCase());
   const terms = [...new Set(queryTerms.map((t) => t.toLowerCase()))];
-  if (terms.length === 0) {
-    return joinSnippet(words.slice(0, windowWords), 0, words.length, windowWords);
-  }
+  if (terms.length === 0) return joinSnippet(words.slice(0, windowWords), 0, words.length, windowWords);
 
   const hits = lower.map((w) => (terms.some((t) => w.includes(t)) ? 1 : 0));
   let bestStart = 0;
@@ -271,10 +275,7 @@ export function makeSnippet(text: string, queryTerms: string[], windowWords = 34
       bestStart = i;
     }
   }
-  if (bestScore === 0) {
-    // No term inside any window: fall back to the opening of the document.
-    bestStart = 0;
-  }
+  if (bestScore === 0) bestStart = 0;
   return joinSnippet(words.slice(bestStart, bestStart + windowWords), bestStart, words.length, windowWords);
 }
 

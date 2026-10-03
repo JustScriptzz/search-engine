@@ -1,6 +1,7 @@
 import { CONFIG } from "./config.ts";
 import { runAgent, type ChatTurn } from "./ai.ts";
 import { authorityBoost, computeAuthority, isCuratedRoot } from "./authority.ts";
+import { buildOverview } from "./overview.ts";
 import { countryBoost, getClientIp, languageBoost, languagesForCountry, lookupCountry } from "./geo.ts";
 import { FAMOUS_SITES } from "./famous.ts";
 import { rejectDoc } from "./quality.ts";
@@ -175,6 +176,19 @@ export function startServer(idx: InvertedIndex, port: number = CONFIG.server.por
           },
           { headers: cors },
         );
+      }
+
+      // ---- API: AI overview (answer above the results) ----
+      if (url.pathname === "/api/overview") {
+        const q = (url.searchParams.get("q") ?? "").trim();
+        if (!q) return Response.json({ error: "q required" }, { status: 400, headers: cors });
+        const override = (url.searchParams.get("country") ?? "").toUpperCase();
+        const geo = override
+          ? { country: override, countryCode: override }
+          : await lookupCountry(getClientIp(req));
+        const t0 = Date.now();
+        const overview = await buildOverview({ query: q, index: idx, countryCode: geo.countryCode });
+        return Response.json({ query: q, tookMs: Date.now() - t0, ...overview }, { headers: cors });
       }
 
       // ---- API: where the visitor appears to be ----

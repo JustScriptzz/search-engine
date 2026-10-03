@@ -214,6 +214,28 @@ main { flex: 1; width: 100%; max-width: 1080px; margin: 0 auto; padding: 1.5rem 
 .note-row { background: transparent; border-style: dashed; box-shadow: none; }
 .note-row .r-snip { color: var(--warn); }
 
+/* AI overview card */
+.overview {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 8%, var(--panel)), var(--panel));
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+  border-radius: var(--r-lg); padding: 1.1rem 1.2rem; margin-bottom: 1.2rem; box-shadow: var(--shadow);
+}
+.overview-head {
+  display: flex; align-items: center; gap: .5rem;
+  font: 700 .72rem var(--mono); text-transform: uppercase; letter-spacing: .1em;
+  color: var(--accent); margin-bottom: .7rem;
+}
+.spark { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+.overview-body { font-size: .98rem; line-height: 1.65; }
+.overview-body p { margin: 0 0 .5rem; }
+.overview-body a { color: var(--accent-2); }
+.overview-sources { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .85rem; }
+.overview-sources a {
+  font: .72rem var(--mono); text-decoration: none; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 999px; padding: .2rem .6rem;
+}
+.overview-sources a:hover { color: var(--text); border-color: var(--accent); }
+
 .more {
   width: 100%; margin-top: 1rem; padding: .85rem;
   background: var(--panel); border: 1px dashed var(--line-2); border-radius: var(--r-md);

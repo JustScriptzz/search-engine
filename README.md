@@ -150,6 +150,35 @@ enforces robots, per-host politeness and the quality gate on every fetch. On a
 1 GB VPS budget crawl volume by pages, not ambition: raise `--max` as disk
 allows, and re-run `prune` afterwards.
 
+## Query understanding + AI overview
+
+`src/query.ts` turns a question into something BM25 can answer:
+
+- **intent detection** — how / what / why / who / when / where / best / lookup
+- **question noise removal** — "how does github work" ranks on `github`, not on
+  *how / does / work*; an all-noise query falls back to its raw terms
+- **weighted coordination** — a term that exists nowhere in the corpus counts
+  0.35 instead of 1, so pages are no longer punished for words no page contains
+
+`GET /api/overview?q=…` returns a 2–4 sentence cited answer for the card above
+the results (`src/overview.ts`): same index as the results, its own system prompt
+("answer only from these sources, cite exact URLs, say so if they don't cover
+it"), and a deterministic **extractive fallback** so the panel still shows
+something when the model is unavailable.
+
+```bash
+curl "localhost:3000/api/overview?q=how%20does%20github%20work"
+```
+
+Coverage still matters: if the crawl only has a site's homepage, the overview
+will honestly say the sources don't explain it. Fix that by crawling the site's
+sitemap so explanatory articles are in the index:
+
+```bash
+bun src/cli.ts sitemap --hosts github.blog --per-host 500 --out data/gh.txt
+bun src/cli.ts crawl --seeds data/gh.txt --max 300
+```
+
 ## Ranking
 
 BM25 (`k1=1.2`, `b=0.75`) with the title repeated twice in the term stream, plus:
