@@ -197,7 +197,7 @@ export const CONFIG = {
     // Field weights applied on top of BM25: a term in the page title counts
     // more than in the body, and matching the site's own host counts most, so
     // "youtube" surfaces youtube.com rather than pages that mention it.
-    field: { title: 1.2, host: 2.2, subdomainHost: 0.8, phrase: 0.8 },
+    field: { title: 1.2, host: 2.2, subdomainHost: 0.8, phrase: 0.8, bodyPhrase: 0.4 },
   },
 
   tokenizer: {

@@ -145,7 +145,7 @@ export class InvertedIndex {
       }
     }
 
-    const queryPhrase = plan.subject.toLowerCase();
+    const queryPhrase = normalizePhrase(plan.subject);
 
     return [...scores.entries()]
       .map(([docId, score]) => {
@@ -170,8 +170,12 @@ export class InvertedIndex {
         }
         const titleFactor = 1 + (titleHits / unique.length) * FIELD.title;
         const hostFactor = 1 + (exactHits / unique.length) * FIELD.host + (hostHits / unique.length) * FIELD.subdomainHost;
-        const phraseFactor =
-          queryPhrase.length > 3 && doc.title.toLowerCase().includes(queryPhrase) ? FIELD.phrase + 1 : 1;
+        // Exact phrase, punctuation-insensitive. A query that reproduces a title
+        // verbatim should win outright — "never gonna give you up" has to find
+        // the video, not pages that merely contain the word "up".
+        const phraseInTitle = queryPhrase.length > 3 && normalizePhrase(doc.title).includes(queryPhrase);
+        const phraseInBody = !phraseInTitle && queryPhrase.length > 3 && normalizePhrase(doc.text).includes(queryPhrase);
+        const phraseFactor = phraseInTitle ? FIELD.phrase + 1 : phraseInBody ? 1 + FIELD.bodyPhrase : 1;
 
         return {
           docId,
@@ -256,15 +260,35 @@ export class InvertedIndex {
   }
 }
 
+/** Lowercase, strip punctuation to single spaces, collapse runs — so phrase
+ *  comparison ignores the punctuation a title happens to carry. */
+export function normalizePhrase(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9à-ÿ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Does a word match a search term? Whole word always; a prefix only when the
+ *  term is long enough that the match is meaningful. Without this, "up" matches
+ *  "Updated" and every snippet is highlighted in the wrong places. */
+export function wordMatches(word: string, term: string): boolean {
+  const w = word.toLowerCase();
+  const t = term.toLowerCase();
+  if (w === t) return true;
+  return t.length >= 4 && w.startsWith(t);
+}
+
 /** Snippet = the densest window of words around query terms, not just the first hit. */
 export function makeSnippet(text: string, queryTerms: string[], windowWords = 34): string {
   const words = text.split(/\s+/).filter(Boolean);
   if (words.length === 0) return "";
-  const lower = words.map((w) => w.toLowerCase());
+  const lower = words.map((w) => w.toLowerCase().replace(/[^a-z0-9à-ÿ]/g, ""));
   const terms = [...new Set(queryTerms.map((t) => t.toLowerCase()))];
   if (terms.length === 0) return joinSnippet(words.slice(0, windowWords), 0, words.length, windowWords);
 
-  const hits = lower.map((w) => (terms.some((t) => w.includes(t)) ? 1 : 0));
+  const hits = lower.map((w) => (terms.some((t) => wordMatches(w, t)) ? 1 : 0));
   let bestStart = 0;
   let bestScore = -1;
   for (let i = 0; i + windowWords <= words.length; i++) {

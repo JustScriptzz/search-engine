@@ -36,7 +36,8 @@
     const terms = [...new Set(String(query).toLowerCase().split(/[^a-z0-9à-ÿ]+/i).filter((t) => t.length > 1))];
     let out = esc(text);
     for (const t of terms) {
-      out = out.replace(new RegExp(`(${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi"), "<mark>$1</mark>");
+      // Whole-word only: "up" must not light up inside "Updated".
+      out = out.replace(new RegExp(`(?<![a-z0-9à-ÿ])(${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})(?![a-z0-9à-ÿ])`, "gi"), "<mark>$1</mark>");
     }
     return out;
   }
@@ -256,7 +257,7 @@
       if (!data.hits.length) {
         const li = document.createElement("li");
         li.className = "result";
-        li.innerHTML = `<div></div><div><h3 class="r-title">Nothing indexed for “${esc(q)}”</h3><p class="r-snip">Try fewer words, clear the domain filter, or ask MiniSearch AI.</p></div>`;
+        li.innerHTML = `<div></div><div><h3 class="r-title">Nothing indexed for “${esc(q)}”</h3><p class="r-snip">Try fewer words, clear the domain filter, or ask MiniSearch AI.</p><p class="r-snip"><a href="/api/doctor" target="_blank" rel="noopener">Check what the crawler could reach</a> — some sites refuse datacenter IPs.</p></div>`;
         el.results.appendChild(li);
       } else {
         data.hits.forEach((h, i) => el.results.appendChild(resultNode(h, i, q)));

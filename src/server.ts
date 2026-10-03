@@ -146,6 +146,11 @@ function siteLookupNote(idx: InvertedIndex, query: string): string | null {
 }
 
 /** Allowlisted root domains, used for the authority floor. */
+/** Reachability probe cache for /api/doctor, so the UI can ask without
+ *  re-fetching 40 hosts on every poll. */
+const PROBE_TTL = 10 * 60 * 1000;
+const probeCache = new Map<string, { at: number; value: any }>();
+
 const FAMOUS_HOST_SET = new Set<string>(
   FAMOUS_SITES.map((s) => {
     try {
@@ -256,6 +261,74 @@ const deepParam = url.searchParams.get("deep");
               keySource: keySource(),
               tools: ["search_index", "read_page", "index_stats"],
             },
+          },
+          { headers: cors },
+        );
+      }
+
+      // ---- API: crawl diagnostics ----
+      // Answers "why is nothing indexed?" with facts instead of guesswork: what
+      // is actually in the index, and whether we can still reach the hosts we
+      // are supposed to be crawling (providers often block datacenter IPs).
+      if (url.pathname === "/api/doctor") {
+        const verticals: Record<string, number> = { text: 0, image: 0, video: 0, short: 0 };
+        const perHost = new Map<string, number>();
+        for (const doc of idx.docs.values()) {
+          verticals[doc.media?.type ?? "text"] = (verticals[doc.media?.type ?? "text"] ?? 0) + 1;
+          const host = domainOf(doc.url);
+          perHost.set(host, (perHost.get(host) ?? 0) + 1);
+        }
+        const hosts = [...new Set(CONFIG.seeds.map((u) => {
+          try {
+            return new URL(u).hostname.replace(/^www\./, "");
+          } catch {
+            return "";
+          }
+        }).filter(Boolean))];
+        // Bounded concurrency: a few dozen hosts, a handful at a time.
+        const probe: any[] = [];
+        for (let i = 0; i < hosts.length; i += 8) {
+          probe.push(
+            ...(await Promise.all(
+              hosts.slice(i, i + 8).map(async (host) => {
+                const cached = probeCache.get(host);
+                if (cached && Date.now() - cached.at < PROBE_TTL) return cached.value;
+                const started = Date.now();
+                let status = 0;
+                let error = "";
+                try {
+                  const res = await fetch(`https://${host}/`, {
+                    redirect: "follow",
+                    signal: AbortSignal.timeout(8000),
+                    headers: { "user-agent": CONFIG.userAgent, accept: "text/html" },
+                  });
+                  status = res.status;
+                  await res.body?.cancel();
+                } catch (e: any) {
+                  error = String(e?.name === "TimeoutError" ? "timeout" : e?.message ?? e).slice(0, 80);
+                }
+                const value = {
+                  host,
+                  status,
+                  error,
+                  indexed: idx.hosts.has(host),
+                  ms: Date.now() - started,
+                };
+                probeCache.set(host, { at: Date.now(), value });
+                return value;
+              }),
+            )),
+          );
+        }
+        return Response.json(
+          {
+            docs: idx.docCount,
+            terms: idx.index.size,
+            verticals,
+            topHosts: [...perHost.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20),
+            probes: probe,
+            blocked: probe.filter((p) => p.error || p.status >= 400 || p.status === 0).map((p) => p.host),
+            unindexed: probe.filter((p) => !p.indexed).map((p) => p.host),
           },
           { headers: cors },
         );

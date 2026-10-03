@@ -32,7 +32,9 @@ const INTENT_PATTERNS: Array<[Intent, RegExp]> = [
   ["best", /\b(best|top|vs|versus|compare|comparison|alternative|alternatives|recommend)\b/i],
 ];
 
-/** Words that carry no ranking signal in a question. */
+/** Words that carry no ranking signal *in a question*. They are content words
+ *  in a lookup — "never gonna give you up" is a song title, not a request —
+ *  so this list is only applied to question intents. */
 const QUESTION_NOISE = new Set([
   "how", "why", "what", "who", "whom", "whose", "when", "where", "which",
   "please", "can", "could", "would", "should", "does", "do", "did", "is", "are", "was", "were",
@@ -49,14 +51,19 @@ export function analyzeQuery(raw: string): QueryPlan {
   const cleaned = raw.replace(/[?!.]+$/g, "").replace(/\s+/g, " ").trim();
   const terms = [...new Set(tokenize(cleaned))];
   const intent = detectIntent(cleaned);
-  const focus = terms.filter((t) => !QUESTION_NOISE.has(t));
+  // Only questions shed filler words. Stripping them from a title-like query
+  // left "never gonna up" — which matched nothing, and matched nothing as a
+  // phrase either, so the right page could never surface.
+  const stripped = intent === "lookup" ? terms : terms.filter((t) => !QUESTION_NOISE.has(t));
+  const focus = stripped;
   return {
     raw: cleaned,
     terms,
-    // A pure question ("how does github work") still needs *something* to rank on.
-    focus: focus.length ? focus : terms,
+    focus,
     intent,
-    subject: focus.join(" ") || cleaned,
+    // The phrase we quote back is the user's own words, so an exact title or
+    // body phrase can be recognised.
+    subject: cleaned.toLowerCase(),
   };
 }
 
