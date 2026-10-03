@@ -82,4 +82,86 @@ export const FAMOUS_SITES: FamousSite[] = [
   { name: "La Repubblica", url: "https://www.repubblica.it" },
   { name: "Rai", url: "https://www.rainews.it" },
   { name: "Treccani", url: "https://www.treccani.it/enciclopedia/" },
+
+  // Social networks. Note the reality of robots.txt here: instagram, x,
+  // facebook, pinterest and reddit answer "Disallow: /" to every crawler, so a
+  // polite crawl can never reach them. They are listed anyway because
+  // `ccimport` pulls their pages from Common Crawl (which they *do* allow)
+  // instead of from the origin. tiktok only opens /foryou /discover /about.
+  { name: "Instagram", url: "https://www.instagram.com" },
+  { name: "TikTok", url: "https://www.tiktok.com/about" },
+  { name: "X", url: "https://x.com" },
+  { name: "Facebook", url: "https://www.facebook.com" },
+  { name: "Reddit", url: "https://www.reddit.com" },
+  { name: "Pinterest", url: "https://www.pinterest.com" },
+  { name: "LinkedIn", url: "https://www.linkedin.com" },
+  { name: "Threads", url: "https://www.threads.net" },
+  { name: "Mastodon", url: "https://mastodon.social" },
+  { name: "Bluesky", url: "https://bsky.app" },
+  { name: "Tumblr", url: "https://www.tumblr.com" },
+  { name: "Snapchat", url: "https://www.snapchat.com" },
+  { name: "Discord", url: "https://discord.com" },
+
+  // Video, streaming & audio
+  { name: "Twitch", url: "https://www.twitch.tv" },
+  { name: "Vimeo", url: "https://vimeo.com" },
+  { name: "Dailymotion", url: "https://www.dailymotion.com" },
+  { name: "Spotify", url: "https://open.spotify.com" },
+  { name: "SoundCloud", url: "https://soundcloud.com" },
+  { name: "Bandcamp", url: "https://bandcamp.com" },
+  { name: "Mixcloud", url: "https://www.mixcloud.com" },
+  { name: "IMDb", url: "https://www.imdb.com" },
+  { name: "Letterboxd", url: "https://letterboxd.com" },
+
+  // Developer communities & platforms
+  { name: "Dev.to", url: "https://dev.to" },
+  { name: "Hashnode", url: "https://hashnode.com" },
+  { name: "Product Hunt", url: "https://www.producthunt.com" },
+  { name: "Hacker News", url: "https://news.ycombinator.com" },
+  { name: "Lobsters", url: "https://lobste.rs" },
+  { name: "SourceForge", url: "https://sourceforge.net" },
+  { name: "GitLab", url: "https://gitlab.com" },
+  { name: "Bitbucket", url: "https://bitbucket.org" },
+  { name: "CodePen", url: "https://codepen.io" },
+  { name: "npm", url: "https://www.npmjs.com" },
+  { name: "PyPI", url: "https://pypi.org" },
+  { name: "Docker Hub", url: "https://hub.docker.com" },
+  { name: "Kaggle", url: "https://www.kaggle.com" },
+  { name: "Replit", url: "https://replit.com" },
+
+  // Reference, docs & learning
+  { name: "MDN Web Docs", url: "https://developer.mozilla.org" },
+  { name: "Can I Use", url: "https://caniuse.com" },
+  { name: "Khan Academy", url: "https://www.khanacademy.org" },
+  { name: "MIT OpenCourseWare", url: "https://ocw.mit.edu" },
+  { name: "Coursera", url: "https://www.coursera.org" },
+  { name: "edX", url: "https://www.edx.org" },
+  { name: "freeCodeCamp", url: "https://www.freecodecamp.org" },
+  { name: "Smashing Magazine", url: "https://www.smashingmagazine.com" },
+  { name: "CSS-Tricks", url: "https://css-tricks.com" },
+  { name: "Web.dev", url: "https://developer.chrome.com/docs" },
+  { name: "OWASP", url: "https://owasp.org" },
+  { name: "OpenStreetMap", url: "https://www.openstreetmap.org" },
+  { name: "Wolfram Alpha", url: "https://www.wolframalpha.com" },
+  { name: "Merriam-Webster", url: "https://www.merriam-webster.com" },
+
+  // Shopping, travel & food
+  { name: "Wikipedia (IT)", url: "https://it.wikipedia.org/wiki/Italia" },
+  { name: "TripAdvisor", url: "https://www.tripadvisor.com" },
+  { name: "Airbnb", url: "https://www.airbnb.com" },
+  { name: "Booking.com", url: "https://www.booking.com" },
+  { name: "Zillow", url: "https://www.zillow.com" },
+  { name: "Allrecipes", url: "https://www.allrecipes.com" },
+  { name: "Yelp", url: "https://www.yelp.com" },
+  { name: "eBay", url: "https://www.ebay.com" },
+
+  // Regional press beyond the US
+  { name: "Der Spiegel", url: "https://www.spiegel.de" },
+  { name: "Le Monde", url: "https://www.lemonde.fr" },
+  { name: "El País", url: "https://elpais.com" },
+  { name: "RTL Nieuws", url: "https://www.rtlnieuws.nl" },
+  { name: "Aftonbladet", url: "https://www.aftonbladet.se" },
+  { name: "NRK", url: "https://www.nrk.no" },
+  { name: "Yle", url: "https://yle.fi" },
+  { name: "NHK World", url: "https://www3.nhk.or.jp" },
 ];

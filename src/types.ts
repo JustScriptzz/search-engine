@@ -9,6 +9,9 @@ export interface CrawledDoc {
   stub?: boolean; // allowlist entry whose page could not be fetched
   /** Video/image indexed from its metadata (title + description + thumbnail). */
   mediaCard?: boolean;
+  /** Page text came from a Common Crawl WARC record, not from the origin. Those
+   *  sites disallow crawling, so this flag keeps the distinction honest. */
+  viaCommonCrawl?: boolean;
   /** Vertical classification from page metadata (article/image/video/short). */
   media?: {
     type: "text" | "image" | "video" | "short";

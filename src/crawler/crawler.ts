@@ -6,6 +6,7 @@ import { isAllowedLanguage } from "../lang.ts";
 import { isFamousHost, FAMOUS_SITES } from "../famous.ts";
 import { isJunkUrl, isLowQualityText } from "../quality.ts";
 import { CONFIG } from "../config.ts";
+import { hash } from "../util.ts";
 import { InvertedIndex } from "../index/invertedIndex.ts";
 import { normalizeText } from "../index/tokenizer.ts";
 import type { CrawledDoc } from "../types.ts";
@@ -314,10 +315,4 @@ function mediaCardText(
     .filter(Boolean)
     .join(". ")
     .trim();
-}
-
-function hash(s: string): string {
-  const h = new Bun.CryptoHasher("sha256");
-  h.update(s);
-  return h.digest("hex").slice(0, 16);
 }

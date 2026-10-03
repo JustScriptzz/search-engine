@@ -8,6 +8,9 @@ import { loadIndex, saveIndex, startServer } from "./server.ts";
 import { rejectDoc } from "./quality.ts";
 import { discoverMany } from "./discovery.ts";
 import { collectSitemapUrls, subdomainsFromCrt } from "./sitemaps.ts";
+import { statSync } from "node:fs";
+import { importHost } from "./ccimport.ts";
+import { describeBudget, footprintOf, runAllowance } from "./storage.ts";
 import { FAMOUS_SITES } from "./famous.ts";
 
 await loadEnvFile();
@@ -135,6 +138,34 @@ if (cmd === "sitemap" || cmd === "crt") {
       `(junk=${removed.junk} language=${removed.language} lowQuality=${removed.lowQuality}). ` +
       `Left ${s.docCount} docs / ${s.termCount} terms.`,
   );
+} else if (cmd === "ccimport") {
+  // Index pages we may not crawl, from Common Crawl's WARC storage instead.
+  // Instagram, Reddit, X, Facebook and Pinterest all answer "Disallow: /" to
+  // every crawler; this gets their real page text without ever contacting them.
+  const hosts = (arg("--hosts") ?? "").split(",").map((h) => h.trim()).filter(Boolean);
+  const perHost = parseInt(arg("--per-host", String(CONFIG.storage.bulkPerHost * 25))!);
+  if (hosts.length === 0) {
+    console.error("Usage: ccimport --hosts instagram.com,tiktok.com [--per-host 50] [--collection CC-MAIN-...]");
+    process.exit(1);
+  }
+  const collection = arg("--collection") ?? undefined;
+  const idx = await loadIndex();
+  let added = 0;
+  let skipped = 0;
+  for (const host of hosts) {
+    const res = await importHost(idx, host, {
+      perHost,
+      collection,
+      onDoc: (url, title) => console.log(`[cc] ${title.slice(0, 60)} | ${url}`),
+    });
+    if (res.error) console.error(`${host}: ${res.error}`);
+    else console.error(`${host}: +${res.added} of ${res.found} records (${res.skipped} skipped)`);
+    added += res.added;
+    skipped += res.skipped;
+  }
+  await saveIndex(idx);
+  const s = idx.stats();
+  console.log(`ccimport done. added=${added} skipped=${skipped} docs=${s.docCount} terms=${s.termCount}`);
 } else if (cmd === "crawl") {
   let seeds = await readSeeds(arg("--seeds"));
   // Optional web-scale discovery: pull real URLs from the Common Crawl index.
@@ -162,10 +193,27 @@ if (cmd === "sitemap" || cmd === "crt") {
       await saveIndex(idx);
     }
   }
+  // Stop before the disk fills: the index file is rewritten on every save, so
+  // overrunning the budget takes the panel down, not just the crawl.
+  let bytes = 0;
+  try {
+    bytes = statSync(CONFIG.server.indexPath).size;
+  } catch {
+    // first run, no file yet
+  }
+  const before = footprintOf(idx.docCount, idx.index.size, bytes);
+  const affordable = process.argv.includes("--no-budget")
+    ? max
+    : Math.min(max, Math.max(50, runAllowance(before)));
+  if (affordable < max) {
+    console.log(describeBudget(before));
+    console.log(`budget allows ${affordable} pages this run (--max was ${max})`);
+  }
+
   const result = await crawl(
     seeds,
     idx,
-    { maxPages: max, concurrency, sameHostOnly },
+    { maxPages: affordable, concurrency, sameHostOnly },
     (doc, n) => console.log(`[${n}] ${(doc.title || doc.url).slice(0, 70)} | ${doc.url}`),
   );
   await saveIndex(idx);
@@ -174,6 +222,7 @@ if (cmd === "sitemap" || cmd === "crt") {
     `Done. crawled=${result.crawled} errors=${result.errors} skippedLanguage=${result.skippedLanguage} ` +
       `skippedRobots=${result.skippedRobots} docs=${s.docCount} terms=${s.termCount}`,
   );
+  console.log(describeBudget(footprintOf(idx.docCount, idx.index.size, statSync(CONFIG.server.indexPath).size)));
 } else if (cmd === "search") {
   const q = arg("--query", process.argv.slice(3).join(" "))!;
   if (!q) {

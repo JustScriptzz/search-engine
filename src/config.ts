@@ -305,10 +305,32 @@ ai: {
     readPageChars: 4000,
   },
 
+  storage: {
+    // What we are willing to spend on disk. The VPS has ~1 GB, so the crawl has
+    // to stop on its own rather than fill the disk and take the panel down with
+    // it. data/index.json is rewritten on every save, so leave headroom for two
+    // copies of it plus the runtime.
+    indexBudgetMb: 620,
+    // Refuse to start a bulk run that would leave less than this free.
+    minFreeMb: 120,
+    // Documents per host in bulk mode: many hosts, few pages each. Coverage
+    // beats depth when the budget is the binding constraint.
+    bulkPerHost: 2,
+    // Bulk mode only takes pages that look like real pages from the hosts we
+    // chose on purpose, unless you opt into the long tail.
+    bulkCuratedOnly: true,
+  },
+
   discovery: {
     // Common Crawl's public index: a catalogue of every crawled URL on the web.
     collectionIndexUrl: "https://index.commoncrawl.org/collinfo.json",
     indexUrl: "https://index.commoncrawl.org",
+    // WARC records are stored as gzipped byte ranges inside huge files on
+    // Common Crawl's own storage. Reading a range of one is how we index a site
+    // that refuses to be crawled, without touching its origin.
+    dataUrl: "https://data.commoncrawl.org",
+    // Bandwidth ceiling per range fetch, so a fat page cannot blow up the box.
+    maxRecordBytes: 2_000_000,
     timeoutMs: 90_000,
     collectionCacheTtlMs: 6 * 60 * 60 * 1000,
     // How many URLs to pull per pattern during `discover`.

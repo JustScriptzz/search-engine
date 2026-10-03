@@ -2,6 +2,7 @@ import { statSync } from "node:fs";
 import { domainOf, round } from "./util.ts";
 import { handleV1, isV1 } from "./apiv1.ts";
 import { loadTls, tlsStatus } from "./tls.ts";
+import { bytesPerDoc, describeBudget, docsRemaining, footprintOf } from "./storage.ts";
 import { CONFIG } from "./config.ts";
 import { runAgent, type ChatTurn } from "./ai.ts";
 import { authorityBoost, computeAuthority, isCuratedRoot } from "./authority.ts";
@@ -150,6 +151,29 @@ function siteLookupNote(idx: InvertedIndex, query: string): string | null {
 }
 
 /** Allowlisted root domains, used for the authority floor. */
+/**
+ * Disk budget and how much room is left. The VPS has about 1 GB, and the index
+ * file is rewritten on every save, so "fill the disk" has to be arithmetic.
+ */
+function budget(idx: InvertedIndex) {
+  let bytes = 0;
+  try {
+    bytes = statSync(INDEX_PATH).size;
+  } catch {
+    // no index file yet
+  }
+  const f = footprintOf(idx.docCount, idx.index.size, bytes);
+  const left = docsRemaining(f);
+  return {
+    ...f,
+    budgetMb: CONFIG.storage.indexBudgetMb,
+    minFreeMb: CONFIG.storage.minFreeMb,
+    bytesPerDoc: bytesPerDoc(f),
+    docsRemaining: Number.isFinite(left) ? left : null,
+    summary: describeBudget(f),
+  };
+}
+
 /** Reachability probe cache for /api/doctor, so the UI can ask without
  *  re-fetching 40 hosts on every poll. */
 const PROBE_TTL = 10 * 60 * 1000;
@@ -407,6 +431,9 @@ const deepParam = url.searchParams.get("deep");
             indexAgeHours: indexAgeHours(),
             stale: (indexAgeHours() ?? 0) > CONFIG.crawl.staleHours,
             tls: tlsStatus(),
+            // Whether there is still room to crawl, so "use the whole gigabyte"
+            // is a measurable thing rather than a guess.
+            storage: budget(idx),
             verticals,
             topHosts: [...perHost.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20),
             probes: probe,
