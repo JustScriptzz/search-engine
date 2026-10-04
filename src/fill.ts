@@ -11,6 +11,7 @@
 // restart, and the budget check is arithmetic rather than a hope.
 import { CONFIG } from "./config.ts";
 import { docsRemaining, type IndexFootprint } from "./storage.ts";
+import { describeLimit, memoryLimit, type MemoryLimit } from "./memory.ts";
 
 export type FillPhase = "sitemaps" | "discover" | "longtail" | "done";
 
@@ -100,6 +101,18 @@ export function memoryGuard(input: {
 /** Resident memory right now, in bytes. */
 export function rssBytes(): number {
   return process.memoryUsage().rss;
+}
+
+/**
+ * The ceiling we enforce, resolved once per run.
+ *
+ * CONFIG says how much we are willing to use; cgroup says how much we are
+ * allowed. The smaller wins, because a guard set above the real limit never
+ * fires and the kernel kills the process instead — which is what happened on
+ * the first fill run at a mere 100 MB of steady-state usage.
+ */
+export function resolveLimit(configured = CONFIG.storage.memoryLimitBytes): MemoryLimit {
+  return memoryLimit(configured);
 }
 
 /** A deadline the loop can check cheaply on every step. */

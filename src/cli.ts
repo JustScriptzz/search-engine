@@ -11,7 +11,8 @@ import { collectSitemapUrls, subdomainsFromCrt } from "./sitemaps.ts";
 import { statSync } from "node:fs";
 import { importHost } from "./ccimport.ts";
 import { describeBudget, footprintOf, runAllowance } from "./storage.ts";
-import { deadlineFromNow, hostQueue, memoryGuard, planFill, rssBytes } from "./fill.ts";
+import { deadlineFromNow, hostQueue, memoryGuard, planFill, resolveLimit, rssBytes } from "./fill.ts";
+import { describeLimit } from "./memory.ts";
 import { FAMOUS_SITES } from "./famous.ts";
 
 await loadEnvFile();
@@ -189,6 +190,7 @@ if (cmd === "sitemap" || cmd === "crt") {
   const maxPages = parseInt(arg("--max-pages", "100000")!);
   const perHost = parseInt(arg("--per-host", String(CONFIG.storage.fillSitemapPerHost))!);
   const idx = await loadIndex();
+  const limit = resolveLimit();
   const deadline = deadlineFromNow(maxMinutes);
   const seedHosts = [...new Set(CONFIG.seeds.map((u) => {
     try {
@@ -203,8 +205,8 @@ if (cmd === "sitemap" || cmd === "crt") {
   let round = 0;
 
   console.log(
-    `fill: budget ${budgetMb} MB, ${maxMinutes} min, ${seedHosts.length} curated hosts` +
-      `${longTail ? ", long tail enabled" : ""}`,
+    `fill: budget ${budgetMb} MB, ${maxMinutes} min, ${seedHosts.length} curated hosts, ` +
+      `memory ${describeLimit(limit)}${longTail ? ", long tail enabled" : ""}`,
   );
 
   while (true) {
@@ -236,11 +238,15 @@ if (cmd === "sitemap" || cmd === "crt") {
     }
 
     // RAM check between rounds: finish cleanly and save, rather than being
-    // OOM-killed halfway through a sitemap.
-    const mem = memoryGuard({ rssBytes: rssBytes(), heapBytes: 0, limitBytes: CONFIG.storage.memoryLimitBytes });
+    // OOM-killed halfway through a sitemap. The ceiling comes from cgroup when
+    // it is readable, because the container limit is usually well under the
+    // machine's memory.
+    const mem = memoryGuard({ rssBytes: rssBytes(), heapBytes: 0, limitBytes: limit.bytes });
     if (mem.over) {
       await saveIndex(idx);
-      console.log(`fill: stopping — memory at ${mem.usedPct}% of ${CONFIG.storage.memoryLimitBytes / 1_048_576} MB (${mem.rssMb} MB rss)`);
+      console.log(
+        `fill: stopping — memory at ${mem.usedPct}% of ${describeLimit(limit)} (${mem.rssMb} MB rss)`,
+      );
       console.log(`fill: index saved with ${idx.docCount} docs; restart to continue filling`);
       break;
     }
