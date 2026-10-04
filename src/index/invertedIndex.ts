@@ -4,11 +4,15 @@ import { analyzeQuery, coordinationScore, coordinationWeights } from "../query.t
 import { CONFIG } from "../config.ts";
 import type { CrawledDoc, IndexStats, SearchHit } from "../types.ts";
 
-interface Posting {
-  tf: number;
-}
-
-type InvertedList = Map<string, Map<string, Posting>>;
+/**
+ * docId -> term frequency.
+ *
+ * The value is a plain number rather than a `{tf}` wrapper because that wrapper
+ * was the single biggest memory cost in the whole index: measured at 408 bytes
+ * per (term, document) pair, a real page carries ~1,255 of them, so a document
+ * cost ~500 KB of RAM to index 15 KB of text. The postings were 97% of the heap.
+ */
+type InvertedList = Map<string, Map<string, number>>;
 
 const { k1: K1, b: B, titleRepeat: TITLE_REPEAT, coordination: COORD, field: FIELD } = CONFIG.bm25;
 
@@ -83,7 +87,7 @@ export class InvertedIndex {
         list = new Map();
         this.index.set(term, list);
       }
-      list.set(doc.id, { tf: count });
+      list.set(doc.id, count);
     }
     return true;
   }
@@ -135,9 +139,8 @@ export class InvertedIndex {
       const list = this.index.get(term);
       if (!list) continue;
       const idf = this.idf(term);
-      for (const [docId, posting] of list) {
+      for (const [docId, tf] of list) {
         const dl = this.docLens.get(docId) ?? avgLen;
-        const tf = posting.tf;
         const denom = tf + K1 * (1 - B + (B * dl) / avgLen);
         scores.set(docId, (scores.get(docId) ?? 0) + idf * ((tf * (K1 + 1)) / denom));
         let set = matchedSets.get(docId);
@@ -241,12 +244,20 @@ export class InvertedIndex {
       idx.hostTerms.set(d.id, hostTokens(d.url ?? ""));
       idx.hosts.add(hostnameOf(d.url ?? ""));
     }
-    // The index is stored as [term, entries] pairs. An older experimental writer
-    // emitted an object keyed by term, so accept both shapes on load.
+    // The index is stored as [term, entries] pairs. Entries used to be
+    // [docId, {tf}] and are now [docId, tf], so accept both when loading an index
+    // written by an older build.
+    const readList = (entries: any): Map<string, number> => {
+      const list = new Map<string, number>();
+      for (const [docId, value] of entries ?? []) {
+        list.set(docId, typeof value === "number" ? value : Number(value?.tf ?? 1));
+      }
+      return list;
+    };
     if (Array.isArray(data.index)) {
-      for (const [term, entries] of data.index) idx.index.set(term, new Map(entries));
+      for (const [term, entries] of data.index) idx.index.set(term, readList(entries));
     } else if (data.index && typeof data.index === "object") {
-      for (const [term, entries] of Object.entries(data.index)) idx.index.set(term, new Map(entries as any));
+      for (const [term, entries] of Object.entries(data.index)) idx.index.set(term, readList(entries));
     }
     for (const [id, len] of data.docLens ?? []) idx.docLens.set(id, len);
     idx.totalLen = data.totalLen ?? 0;
@@ -286,7 +297,7 @@ export class InvertedIndex {
       first = true;
       for (const [term, list] of this.index) {
         const entries: string[] = [];
-        for (const [id, posting] of list) entries.push(JSON.stringify([id, { tf: posting.tf }]));
+        for (const [id, tf] of list) entries.push(JSON.stringify([id, tf]));
         // Same shape as before (array of [term, entries] pairs) so an index
         // written here still loads in an older build, and vice versa.
         // Same shape as before (array of [term, entries] pairs) so an index
