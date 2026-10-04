@@ -104,6 +104,28 @@ export function rssBytes(): number {
 }
 
 /**
+ * Collect garbage now, and report whether it worked.
+ *
+ * JavaScriptCore does not return freed pages to the OS, so RSS is a high-water
+ * mark: measured here, RSS stayed at 56 MB after a full GC while the live heap
+ * dropped from 6 MB to 0. Without an explicit collection between crawl rounds
+ * the crawler keeps asking for fresh pages, RSS climbs, and the memory guard
+ * stops the run even though there is plenty of free memory — which is how an
+ * 18 MB index came to sit at 354 MB RSS. Collecting between rounds lets the
+ * engine reuse the pages instead, and RSS plateaus.
+ */
+export function forceGc(): boolean {
+  const gc = (Bun as unknown as { gc?: (force?: boolean) => void }).gc;
+  if (typeof gc !== "function") return false;
+  try {
+    gc(true);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The ceiling we enforce, resolved once per run.
  *
  * CONFIG says how much we are willing to use; cgroup says how much we are

@@ -4,6 +4,7 @@ import { handleV1, isV1 } from "./apiv1.ts";
 import { loadTls, tlsStatus } from "./tls.ts";
 import { bytesPerDoc, describeBudget, docsRemaining, footprintOf } from "./storage.ts";
 import { facetCounts } from "./facets.ts";
+import { forceGc } from "./fill.ts";
 import { memoryLimit } from "./memory.ts";
 import { CONFIG } from "./config.ts";
 import { runAgent, type ChatTurn } from "./ai.ts";
@@ -187,14 +188,20 @@ function memoryReport() {
   const usage = process.memoryUsage();
   const mb = (n: number) => Math.round((n / 1_048_576) * 10) / 10;
   const rssMb = mb(usage.rss);
+  // The live set, after a collection. RSS is a high-water mark in this engine:
+  // an 18 MB index was once reported at 354 MB RSS because crawl garbage had
+  // never been collected. heapUsed is what is actually occupied.
+  forceGc();
+  const liveMb = mb(process.memoryUsage().heapUsed);
   return {
     limitMb: mb(limit.bytes),
     source: limit.source,
     rssMb,
-    heapMb: mb(usage.heapUsed),
+    liveHeapMb: liveMb,
     usedPct: Math.round((usage.rss / limit.bytes) * 100),
-    // What a full-text index can hold before the guard stops a fill run.
-    indexCeilingMb: Math.round(mb(limit.bytes * CONFIG.storage.memoryStopPct - usage.rss)),
+    // What a full-text index can still hold before the crawl guard stops a run,
+    // measured against the live set rather than the high-water mark.
+    indexCeilingMb: Math.round(mb(limit.bytes * CONFIG.storage.fillMemoryPct) - liveMb),
   };
 }
 

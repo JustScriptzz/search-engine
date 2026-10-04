@@ -14,7 +14,7 @@ import { crawl } from "./crawler/crawler.ts";
 import { collectSitemapUrls } from "./sitemaps.ts";
 import { discoverMany } from "./discovery.ts";
 import { rejectDoc } from "./quality.ts";
-import { deadlineFromNow, hostQueue, memoryGuard, planFill, resolveLimit, rssBytes } from "./fill.ts";
+import { deadlineFromNow, forceGc, hostQueue, memoryGuard, planFill, resolveLimit, rssBytes } from "./fill.ts";
 import { describeLimit } from "./memory.ts";
 import { describeBudget, footprintOf, type IndexFootprint } from "./storage.ts";
 import { saveIndex } from "./server.ts";
@@ -180,6 +180,9 @@ export async function runFill(idx: InvertedIndex, opts: FillOptions = {}): Promi
     );
     fetched += res.crawled + res.errors;
     const pruned = round % 3 === 0 || idx.docCount === before ? pruneIndex(idx) : 0;
+    // Collect before measuring: RSS is a high-water mark in this engine, so the
+    // guard below would otherwise stop the run on memory that is already free.
+    forceGc();
     // Save every round: the index is the only thing worth keeping, and a save
     // is atomic now.
     if (pruned === 0) await saveIndex(idx);
