@@ -9,6 +9,7 @@
 // So: ask cgroup what the limit is, and use the smaller of that and whatever we
 // were told to believe.
 import { totalmem } from "node:os";
+import { readFileSync } from "node:fs";
 
 export interface MemoryLimit {
   bytes: number;
@@ -46,7 +47,7 @@ export function memoryLimit(configured: number, opts: { read?: (p: string) => st
 
 function defaultRead(path: string): string | null {
   try {
-    return require("node:fs").readFileSync(path, "utf8") as string;
+    return readFileSync(path, "utf8");
   } catch {
     return null;
   }

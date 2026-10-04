@@ -332,6 +332,13 @@ ai: {
     // RAM ceiling in bytes. Containers rarely see the host's memory, so this
     // defaults conservatively and the cgroup limit wins when we can read it.
     memoryLimitBytes: 700 * 1_048_576,
+    // The background top-up starts after this long, so the server is answering
+    // queries first. Filling used to be a build step, which meant the site was
+    // unreachable for the whole crawl.
+    fillStartDelayMs: 20_000,
+    // The crawler shares the heap with the server, so it gets a smaller slice
+    // of the memory ceiling than it would if it owned the box.
+    fillMemoryPct: 0.6,
   },
 
   discovery: {

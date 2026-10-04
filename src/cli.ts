@@ -11,8 +11,8 @@ import { collectSitemapUrls, subdomainsFromCrt } from "./sitemaps.ts";
 import { statSync } from "node:fs";
 import { importHost } from "./ccimport.ts";
 import { describeBudget, footprintOf, runAllowance } from "./storage.ts";
-import { deadlineFromNow, hostQueue, memoryGuard, planFill, resolveLimit, rssBytes } from "./fill.ts";
-import { describeLimit } from "./memory.ts";
+import { runFill } from "./fillrun.ts";
+
 import { FAMOUS_SITES } from "./famous.ts";
 
 await loadEnvFile();
@@ -180,146 +180,16 @@ if (cmd === "sitemap" || cmd === "crt") {
   const s = idx.stats();
   console.log(`ccimport done. added=${added} skipped=${skipped} docs=${s.docCount} terms=${s.termCount}`);
 } else if (cmd === "fill") {
-  // Fill the disk budget, in the order that makes an index worth having:
-  // sitemaps of the hosts we chose, then Common Crawl depth on the same hosts,
-  // and only then the long tail (which is opt-in, because that is where the
-  // link-farm spam lives). Stops on its own when the budget or the clock is up.
-  const budgetMb = parseInt(arg("--budget-mb", String(CONFIG.storage.indexBudgetMb))!);
-  const maxMinutes = parseInt(arg("--max-minutes", String(CONFIG.storage.fillMaxMinutes))!);
-  const longTail = process.argv.includes("--long-tail");
-  const maxPages = parseInt(arg("--max-pages", "100000")!);
-  const perHost = parseInt(arg("--per-host", String(CONFIG.storage.fillSitemapPerHost))!);
+  // The loop itself lives in src/fillrun.ts so the running server can share it.
   const idx = await loadIndex();
-  const limit = resolveLimit();
-  const deadline = deadlineFromNow(maxMinutes);
-  const seedHosts = [...new Set(CONFIG.seeds.map((u) => {
-    try {
-      return new URL(u).hostname.replace(/^www\./, "");
-    } catch {
-      return "";
-    }
-  }).filter(Boolean))];
-  const done = new Set<string>();
-  let discoverRounds = 0;
-  let fetched = 0;
-  let round = 0;
-
-  console.log(
-    `fill: budget ${budgetMb} MB, ${maxMinutes} min, ${seedHosts.length} curated hosts, ` +
-      `memory ${describeLimit(limit)}${longTail ? ", long tail enabled" : ""}`,
-  );
-
-  while (true) {
-    let bytes = 0;
-    try {
-      bytes = statSync(CONFIG.server.indexPath).size;
-    } catch {
-      // first run
-    }
-    const fp = footprintOf(idx.docCount, idx.index.size, bytes);
-    const decision = planFill(
-      {
-        footprint: fp,
-        budgetMb,
-        triedHosts: done.size,
-        totalHosts: seedHosts.length,
-        longTail,
-        deadline,
-        fetched,
-        maxPages,
-        discoverRounds,
-      },
-      Date.now(),
-    );
-    round++;
-    if (decision.phase === "done") {
-      console.log(`fill: stopping — ${decision.reason}`);
-      break;
-    }
-
-    // RAM check between rounds: finish cleanly and save, rather than being
-    // OOM-killed halfway through a sitemap. The ceiling comes from cgroup when
-    // it is readable, because the container limit is usually well under the
-    // machine's memory.
-    const mem = memoryGuard({ rssBytes: rssBytes(), heapBytes: 0, limitBytes: limit.bytes });
-    if (mem.over) {
-      await saveIndex(idx);
-      console.log(
-        `fill: stopping — memory at ${mem.usedPct}% of ${describeLimit(limit)} (${mem.rssMb} MB rss)`,
-      );
-      console.log(`fill: index saved with ${idx.docCount} docs; restart to continue filling`);
-      break;
-    }
-
-    let urls: string[] = [];
-    if (decision.phase === "sitemaps") {
-      // One host per round keeps the loop resumable and the log readable.
-      const host = hostQueue(seedHosts, done)[0];
-      if (!host) {
-        done.add("__none__");
-        continue;
-      }
-      done.add(host);
-      const res = await collectSitemapUrls(`https://${host}`, { maxUrls: perHost });
-      urls = res.urls;
-      if (res.errors.length) console.error(`  ${host}: ${res.errors.length} unreadable sitemaps`);
-    } else if (decision.phase === "discover") {
-      discoverRounds++;
-      const patterns = seedHosts
-        .filter((h) => !done.has(`cc:${h}`))
-        .slice(0, 40)
-        .map((h) => `*.${h}/*`);
-      if (patterns.length === 0) {
-        done.add("__none__");
-        continue;
-      }
-      const res = await discoverMany(patterns, Math.ceil(decision.batch / patterns.length));
-      urls = res.urls;
-      for (const h of patterns) done.add(`cc:${h.replace(/^\*\./, "").replace(/\/\*$/, "")}`);
-      if (res.collection) console.log(`  discovery round ${discoverRounds}: ${res.collection}`);
-    } else {
-      const res = await discoverMany(CONFIG.discovery.topicPatterns, Math.ceil(decision.batch / CONFIG.discovery.topicPatterns.length));
-      urls = res.urls;
-    }
-
-    const room = Math.max(20, decision.batch);
-    const batch = urls.slice(0, room);
-    if (batch.length === 0) {
-      console.log(`round ${round}: ${decision.phase} found nothing new`);
-      continue;
-    }
-    const before = idx.docCount;
-    const res = await crawl(
-      batch,
-      idx,
-      {
-        maxPages: batch.length,
-        concurrency: CONFIG.crawl.concurrency,
-        maxPagesPerHost: CONFIG.storage.bulkPerHost * 10,
-        sameHostOnly: false,
-      },
-      () => {},
-    );
-    fetched += res.crawled + res.errors;
-    // Save between rounds: a fill run is long, and losing it all to one bad boot
-    // would be miserable. prune every few rounds keeps junk from accumulating.
-    let pruned = 0;
-    if (round % 3 === 0 || idx.docCount === before) pruned = await pruneIndex(idx);
-    else await saveIndex(idx);
-    const net = idx.docCount - before;
-    const gained = `${net >= 0 ? "+" : ""}${net}`;
-    console.log(
-      `round ${round} (${decision.phase}): ${gained} docs` +
-        `${pruned ? `, ${pruned} pruned` : ""}, ` +
-        describeBudget(footprintOf(idx.docCount, idx.index.size, statSync(CONFIG.server.indexPath).size)),
-    );
-  }
-
-  await pruneIndex(idx);
-  await saveIndex(idx);
-  const s = idx.stats();
-  console.log(`fill done. rounds=${round} fetched=${fetched} docs=${s.docCount} terms=${s.termCount}`);
-  console.log(describeBudget(footprintOf(idx.docCount, idx.index.size, statSync(CONFIG.server.indexPath).size)));
+  const res = await runFill(idx, {
+    budgetMb: parseInt(arg("--budget-mb", String(CONFIG.storage.indexBudgetMb))!),
+    maxMinutes: parseInt(arg("--max-minutes", String(CONFIG.storage.fillMaxMinutes))!),
+    longTail: process.argv.includes("--long-tail"),
+    perHost: parseInt(arg("--per-host", String(CONFIG.storage.fillSitemapPerHost))!),
+    maxPages: parseInt(arg("--max-pages", "100000")!),
+  });
+  console.log(`fill done. rounds=${res.rounds} fetched=${res.fetched} added=${res.added} docs=${idx.docCount} (${res.stoppedBecause})`);
 } else if (cmd === "crawl") {
   let seeds = await readSeeds(arg("--seeds"));
   // Optional web-scale discovery: pull real URLs from the Common Crawl index.
