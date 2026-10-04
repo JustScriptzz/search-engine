@@ -4,6 +4,7 @@ import { handleV1, isV1 } from "./apiv1.ts";
 import { loadTls, tlsStatus } from "./tls.ts";
 import { bytesPerDoc, describeBudget, docsRemaining, footprintOf } from "./storage.ts";
 import { facetCounts } from "./facets.ts";
+import { memoryLimit } from "./memory.ts";
 import { CONFIG } from "./config.ts";
 import { runAgent, type ChatTurn } from "./ai.ts";
 import { authorityBoost, computeAuthority, isCuratedRoot } from "./authority.ts";
@@ -170,6 +171,30 @@ function budget(idx: InvertedIndex) {
     bytesPerDoc: bytesPerDoc(f),
     docsRemaining: Number.isFinite(left) ? left : null,
     summary: describeBudget(f),
+  };
+}
+
+/**
+ * What this process is allowed to use, and what it is using.
+ *
+ * A container's memory limit is enforced by cgroup and invisible to
+ * `os.freemem()`, which is how a fill run once sat at 100 MB of steady-state
+ * usage and still got OOM-killed. Exposed over HTTP so the real ceiling can be
+ * read from a browser.
+ */
+function memoryReport() {
+  const limit = memoryLimit(CONFIG.storage.memoryLimitBytes);
+  const usage = process.memoryUsage();
+  const mb = (n: number) => Math.round((n / 1_048_576) * 10) / 10;
+  const rssMb = mb(usage.rss);
+  return {
+    limitMb: mb(limit.bytes),
+    source: limit.source,
+    rssMb,
+    heapMb: mb(usage.heapUsed),
+    usedPct: Math.round((usage.rss / limit.bytes) * 100),
+    // What a full-text index can hold before the guard stops a fill run.
+    indexCeilingMb: Math.round(mb(limit.bytes * CONFIG.storage.memoryStopPct - usage.rss)),
   };
 }
 
@@ -433,6 +458,10 @@ const deepParam = url.searchParams.get("deep");
             // Whether there is still room to crawl, so "use the whole gigabyte"
             // is a measurable thing rather than a guess.
             storage: budget(idx),
+            // Live memory: the container's real ceiling rather than the VPS's
+            // total, so the crawl limit can be reasoned about from a browser
+            // instead of a console.
+            memory: memoryReport(),
             verticals,
             topHosts: [...perHost.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20),
             probes: probe,
