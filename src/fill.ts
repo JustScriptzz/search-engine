@@ -78,6 +78,30 @@ export function hostQueue(seedHosts: string[], skip: Set<string>): string[] {
   return seedHosts.filter((h) => !skip.has(h));
 }
 
+/**
+ * Stop before the kernel does.
+ *
+ * The first fill run on the VPS was killed by the OOM killer at round 8: the
+ * whole index lives in memory, and one save stringifies all of it at once. A
+ * silent kill loses the run and looks like a crash, so the loop checks its own
+ * footprint between rounds and finishes cleanly, with the index saved.
+ */
+export function memoryGuard(input: {
+  rssBytes: number;
+  heapBytes: number;
+  /** Ceiling for RSS, in bytes. */
+  limitBytes: number;
+}): { over: boolean; usedPct: number; rssMb: number } {
+  const rssMb = Math.round((input.rssBytes / 1_048_576) * 10) / 10;
+  const usedPct = Math.round((input.rssBytes / input.limitBytes) * 100);
+  return { over: input.rssBytes >= input.limitBytes * CONFIG.storage.memoryStopPct, usedPct, rssMb };
+}
+
+/** Resident memory right now, in bytes. */
+export function rssBytes(): number {
+  return process.memoryUsage().rss;
+}
+
 /** A deadline the loop can check cheaply on every step. */
 export function deadlineFromNow(minutes: number, now = Date.now()): number {
   return now + Math.max(1, minutes) * 60_000;

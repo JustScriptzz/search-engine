@@ -11,7 +11,7 @@ import { collectSitemapUrls, subdomainsFromCrt } from "./sitemaps.ts";
 import { statSync } from "node:fs";
 import { importHost } from "./ccimport.ts";
 import { describeBudget, footprintOf, runAllowance } from "./storage.ts";
-import { deadlineFromNow, hostQueue, planFill } from "./fill.ts";
+import { deadlineFromNow, hostQueue, memoryGuard, planFill, rssBytes } from "./fill.ts";
 import { FAMOUS_SITES } from "./famous.ts";
 
 await loadEnvFile();
@@ -232,6 +232,16 @@ if (cmd === "sitemap" || cmd === "crt") {
     round++;
     if (decision.phase === "done") {
       console.log(`fill: stopping — ${decision.reason}`);
+      break;
+    }
+
+    // RAM check between rounds: finish cleanly and save, rather than being
+    // OOM-killed halfway through a sitemap.
+    const mem = memoryGuard({ rssBytes: rssBytes(), heapBytes: 0, limitBytes: CONFIG.storage.memoryLimitBytes });
+    if (mem.over) {
+      await saveIndex(idx);
+      console.log(`fill: stopping — memory at ${mem.usedPct}% of ${CONFIG.storage.memoryLimitBytes / 1_048_576} MB (${mem.rssMb} MB rss)`);
+      console.log(`fill: index saved with ${idx.docCount} docs; restart to continue filling`);
       break;
     }
 

@@ -56,26 +56,103 @@ export async function collectSitemapUrls(
   const urls: string[] = [];
   const errors: string[] = [];
   let sitemaps = 0;
+  // A sitemap *index* lists every child sitemap, and the big ones list hundreds
+  // of thousands. Pushing them all into the queue is how this filled 1 GB of
+  // RAM and got the fill run OOM-killed, so the queue is bounded: we will never
+  // read more than maxSitemaps documents, so there is no point holding more
+  // candidates than that.
+  const maxQueue = Math.max(maxSitemaps * 4, 32);
 
   while (queue.length > 0 && sitemaps < maxSitemaps && urls.length < maxUrls) {
     const sm = queue.shift()!;
     if (seen.has(sm)) continue;
     seen.add(sm);
-    const xml = await fetchText(sm, { timeoutMs, maxBytes: 4_000_000 });
-    if (!xml) {
+
+    const stream = await streamSitemap(sm, timeoutMs, (locs, isIndex) => {
+      if (isIndex) {
+        for (const loc of locs) {
+          if (queue.length >= maxQueue) break;
+          if (!seen.has(loc)) queue.push(loc);
+        }
+      } else {
+        for (const loc of locs) {
+          if (urls.length >= maxUrls) break;
+          if (!seen.has(loc)) {
+            seen.add(loc);
+            urls.push(loc);
+          }
+        }
+      }
+      // Enough for now: stop reading the body instead of holding the rest.
+      return urls.length >= maxUrls || queue.length >= maxQueue;
+    });
+    if (!stream) {
       errors.push(sm);
       continue;
     }
     sitemaps++;
-    const isIndex = SITEMAPINDEX_RE.test(xml);
-    for (const m of xml.matchAll(LOC_RE)) {
-      const loc = decodeXmlEntities(m[1]);
-      if (isIndex) queue.push(loc);
-      else if (!seen.has(loc)) urls.push(loc);
-      if (urls.length >= maxUrls) break;
-    }
   }
   return { urls: urls.slice(0, maxUrls), sitemaps, errors };
+}
+
+/**
+ * Read one sitemap, extracting <loc> values chunk by chunk.
+ *
+ * The whole document is never held in memory: a 4 MB sitemap string per site,
+ * times the number of sites, is what turned a fill run into an OOM. The
+ * callback returns true to stop early, which also cancels the response body.
+ */
+async function streamSitemap(
+  url: string,
+  timeoutMs: number,
+  onChunk: (locs: string[], isIndex: boolean) => boolean,
+): Promise<boolean> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      redirect: "follow",
+      signal: ctrl.signal,
+      headers: { "user-agent": CONFIG.userAgent, accept: "application/xml,text/xml,*/*" },
+    });
+    if (!res.ok || !res.body) return false;
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let isIndex = false;
+    let read = 0;
+    const hardCap = CONFIG.discovery.maxSitemapBytes;
+
+    while (read < hardCap) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      read += value.byteLength;
+      buffer += decoder.decode(value, { stream: true });
+      // <loc> can straddle a chunk boundary, so keep a short tail back.
+      const cut = buffer.lastIndexOf("<loc>");
+      const head = cut > 0 ? buffer.slice(0, cut) : buffer;
+      buffer = cut > 0 ? buffer.slice(cut) : "";
+      if (!isIndex && SITEMAPINDEX_RE.test(head)) isIndex = true;
+      const locs: string[] = [];
+      for (const m of head.matchAll(LOC_RE)) locs.push(decodeXmlEntities(m[1]));
+      if (locs.length && onChunk(locs, isIndex)) {
+        await reader.cancel().catch(() => {});
+        return true;
+      }
+    }
+    // Trailing fragment, in case the document ended mid-element.
+    if (buffer) {
+      const locs: string[] = [];
+      for (const m of buffer.matchAll(LOC_RE)) locs.push(decodeXmlEntities(m[1]));
+      if (locs.length) onChunk(locs, isIndex);
+    }
+    return true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Certificate-transparency subdomain discovery (crt.sh, no API key). */

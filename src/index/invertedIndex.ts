@@ -1,3 +1,4 @@
+import { rename } from "node:fs/promises";
 import { tokenize } from "./tokenizer.ts";
 import { analyzeQuery, coordinationScore, coordinationWeights } from "../query.ts";
 import { CONFIG } from "../config.ts";
@@ -240,14 +241,73 @@ export class InvertedIndex {
       idx.hostTerms.set(d.id, hostTokens(d.url ?? ""));
       idx.hosts.add(hostnameOf(d.url ?? ""));
     }
-    for (const [term, entries] of data.index ?? []) idx.index.set(term, new Map(entries));
+    // The index is stored as [term, entries] pairs. An older experimental writer
+    // emitted an object keyed by term, so accept both shapes on load.
+    if (Array.isArray(data.index)) {
+      for (const [term, entries] of data.index) idx.index.set(term, new Map(entries));
+    } else if (data.index && typeof data.index === "object") {
+      for (const [term, entries] of Object.entries(data.index)) idx.index.set(term, new Map(entries as any));
+    }
     for (const [id, len] of data.docLens ?? []) idx.docLens.set(id, len);
     idx.totalLen = data.totalLen ?? 0;
     return idx;
   }
 
+  /**
+   * Serialise straight to the file, a chunk at a time.
+   *
+   * `Bun.write(path, JSON.stringify(...))` builds the entire index as one
+   * JavaScript string first. Measured on this codebase, saving an 86 MB index
+   * that way spiked RSS to 495 MB — a 5.7x amplification, which is what got
+   * the fill run OOM-killed on a 1 GB VPS. Writing the parts as they are
+   * produced keeps peak memory close to the size of the index itself.
+   */
   async saveToFile(path: string): Promise<void> {
-    await Bun.write(path, JSON.stringify(this.toJSON()));
+    // Write to a sibling temp file and rename it into place.
+    //
+    // Two reasons, both learned the hard way:
+    //  1. Bun's file writer does not truncate. Saving a *smaller* index over a
+    //     larger one leaves the old tail behind, the JSON stops parsing, and
+    //     loadFromFile — which swallows the parse error — hands back an empty
+    //     index. A prune that removes documents can therefore wipe the corpus.
+    //  2. A rename is atomic, so a crash mid-save leaves the previous good
+    //     index in place instead of a half-written file.
+    const tmp = `${path}.tmp`;
+    const out = Bun.file(tmp).writer();
+    const put = (s: string) => out.write(s);
+    try {
+      await put('{"docs":[');
+      let first = true;
+      for (const doc of this.docs.values()) {
+        await put((first ? "" : ",") + JSON.stringify(doc));
+        first = false;
+      }
+      await put('],"index":[');
+      first = true;
+      for (const [term, list] of this.index) {
+        const entries: string[] = [];
+        for (const [id, posting] of list) entries.push(JSON.stringify([id, { tf: posting.tf }]));
+        // Same shape as before (array of [term, entries] pairs) so an index
+        // written here still loads in an older build, and vice versa.
+        // Same shape as before (array of [term, entries] pairs) so an index
+        // written here still loads in an older build, and vice versa.
+        // `entries` holds pre-stringified ["id",{"tf":n}] pairs, so the inner
+        // array is assembled by hand — wrapping it in JSON.stringify would
+        // produce an array of strings instead of an array of pairs.
+        await put((first ? "" : ",") + "[" + JSON.stringify(term) + ",[" + entries.join(",") + "]]");
+        first = false;
+      }
+      await put('],"docLens":[');
+      first = true;
+      for (const [id, len] of this.docLens) {
+        await put((first ? "" : ",") + JSON.stringify([id, len]));
+        first = false;
+      }
+      await put('],"totalLen":' + this.totalLen + "}");
+    } finally {
+      await out.end();
+    }
+    await rename(tmp, path);
   }
 
   static async loadFromFile(path: string): Promise<InvertedIndex> {

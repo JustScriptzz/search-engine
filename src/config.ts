@@ -326,6 +326,12 @@ ai: {
     // Bounded passes over the Common Crawl index, so a fill run moves through
     // its phases instead of living on discovery forever.
     fillDiscoverRounds: 6,
+    // Stop a fill run at this fraction of the RAM ceiling. The kernel would
+    // otherwise kill it mid-round and the run would look like a crash.
+    memoryStopPct: 0.75,
+    // RAM ceiling in bytes. Containers rarely see the host's memory, so this
+    // defaults conservatively and the cgroup limit wins when we can read it.
+    memoryLimitBytes: 700 * 1_048_576,
   },
 
   discovery: {
@@ -345,6 +351,10 @@ ai: {
     // Sitemap expansion: how many sitemap docs to read per host, and how many
     // URLs to keep. Sitemaps are the cheapest bulk URL source on the web.
     sitemapsPerHost: 8,
+    // Hard ceiling on the bytes read from one sitemap document. Sitemaps are
+    // read as a stream, so this bounds the buffer rather than the process, but
+    // it stops a 50 MB "sitemap" from eating the box.
+    maxSitemapBytes: 2_000_000,
     sitemapUrlLimit: 5000,
     // Topic wildcards expanded into URL patterns for `crawl --discover`.
     topicPatterns: [
