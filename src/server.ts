@@ -6,6 +6,7 @@ import { bytesPerDoc, describeBudget, docsRemaining, footprintOf } from "./stora
 import { facetCounts } from "./facets.ts";
 import { forceGc } from "./fill.ts";
 import { memoryLimit } from "./memory.ts";
+import { cosine, embeddingStatus, embeddingsEnabled, embedQuery, loadVector } from "./embed.ts";
 import { CONFIG } from "./config.ts";
 import { runAgent, type ChatTurn } from "./ai.ts";
 import { authorityBoost, computeAuthority, isCuratedRoot } from "./authority.ts";
@@ -73,10 +74,42 @@ interface SearchOptions {
   offset?: number;
 }
 
+/**
+ * Cosine similarity for the documents that have a vector.
+ *
+ * Returns a map of docId -> similarity in 0..1, capped at
+ * CONFIG.embeddings.candidateLimit documents because cosine is not free and the
+ * deep tail of the ranking rarely decides anything.
+ */
+function buildSemanticIndex(idx: InvertedIndex, queryVec: number[]): Map<string, number> | null {
+  let considered = 0;
+  const out = new Map<string, number>();
+  for (const [id, doc] of idx.docs) {
+    if (!doc.vec) continue;
+    if (++considered > CONFIG.embeddings.candidateLimit) break;
+    const stored = loadVector(id, doc.vec);
+    if (!stored) continue;
+    const sim = cosine(queryVec, stored, doc.vec.s);
+    if (sim > 0) out.set(id, sim);
+  }
+  return out.size ? out : null;
+}
+
+/** The query vector, if a semantic layer is configured at all. */
+async function semanticVector(query: string, idx: InvertedIndex): Promise<number[] | null> {
+  if (!embeddingsEnabled()) return null;
+  // No point paying for a vector when the corpus has none.
+  for (const doc of idx.docs.values()) {
+    if (doc.vec) return embedQuery(query);
+    break;
+  }
+  return null;
+}
+
 /** Multi-pass deep search, then the country/authority re-ranking and the
  *  quality gate. Deep search is the retrieval half of a DeepSearcher-style
  *  loop; the reflection half would be the agent, which is optional. */
-function runSearch(idx: InvertedIndex, opts: SearchOptions) {
+export async function runSearch(idx: InvertedIndex, opts: SearchOptions) {
   // Oversample so that paging past the first page still has candidates to score.
   const want = (opts.offset ?? 0) + opts.limit;
   const oversample = Math.min(Math.max(want * 6, 60), 400);
@@ -84,6 +117,11 @@ function runSearch(idx: InvertedIndex, opts: SearchOptions) {
   const deep = deepSearch(idx, opts.query, { limit: oversample, deep: opts.deep });
   const seen = new Set<string>();
   const wanted = opts.vertical ?? null;
+  // Semantic layer: a strong meaning match lifts a page the keywords ranked low,
+  // but it only ever multiplies the keyword score, so an exact phrase still wins.
+  // Entirely optional — with no key configured this is one null check.
+  const queryVec = await semanticVector(opts.query, idx);
+  const semantic = queryVec ? buildSemanticIndex(idx, queryVec) : null;
   const scored = deep.hits
     .filter((h) => {
       const doc = idx.docs.get(h.id);
@@ -109,12 +147,13 @@ function runSearch(idx: InvertedIndex, opts: SearchOptions) {
       const trust = isTrustedHost(host) ? CONFIG.trust.curatedBoost : CONFIG.trust.discoveredPenalty;
       // Vertical: promote the requested kind, demote the rest rather than hide.
       const vboost = verticalBoost(media.type, wanted);
+      const lift = semantic?.get(doc.id) ?? 0;
       return {
         ...h,
         domain: host,
         trust,
         media,
-        score: round(h.score * geo * pop * trust * vboost),
+        score: round(h.score * geo * pop * trust * vboost * (1 + CONFIG.embeddings.weight * lift)),
         authority: round(rank),
       };
     })
@@ -203,6 +242,13 @@ function memoryReport() {
     // measured against the live set rather than the high-water mark.
     indexCeilingMb: Math.round(mb(limit.bytes * CONFIG.storage.fillMemoryPct) - liveMb),
   };
+}
+
+/** Coverage of the semantic layer, for the diagnostics endpoint. */
+function embeddingReport(idx: InvertedIndex) {
+  let embedded = 0;
+  for (const doc of idx.docs.values()) if (doc.vec) embedded++;
+  return embeddingStatus(idx.docCount, embedded);
 }
 
 /** Reachability probe cache for /api/doctor, so the UI can ask without
@@ -319,7 +365,7 @@ export function startServer(idx: InvertedIndex, port: number = CONFIG.server.por
 const deepParam = url.searchParams.get("deep");
         const vParam = (url.searchParams.get("type") ?? url.searchParams.get("vertical") ?? "").toLowerCase();
         const vertical = (["text", "image", "video", "short"] as const).find((v) => v === vParam) ?? null;
-        const { hits, facets, total, deep } = runSearch(idx, {
+        const { hits, facets, total, deep } = await runSearch(idx, {
           query: q,
           limit,
           countryCode: geo.countryCode,
@@ -469,6 +515,9 @@ const deepParam = url.searchParams.get("deep");
             // total, so the crawl limit can be reasoned about from a browser
             // instead of a console.
             memory: memoryReport(),
+            // Whether the semantic layer is configured and how much of the
+            // corpus carries a vector. Names no service and no model.
+            embeddings: embeddingReport(idx),
             verticals,
             topHosts: [...perHost.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20),
             probes: probe,

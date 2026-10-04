@@ -12,6 +12,12 @@ export interface CrawledDoc {
   /** Page text came from a Common Crawl WARC record, not from the origin. Those
    *  sites disallow crawling, so this flag keeps the distinction honest. */
   viaCommonCrawl?: boolean;
+  /**
+   * Semantic vector, stored quantised: base64 of one signed byte per dimension
+   * plus the scale it was quantised with. 1 KB per page rather than 4 KB, which
+   * is the difference between a semantic layer that fits and one that does not.
+   */
+  vec?: { v: string; s: number };
   /** Vertical classification from page metadata (article/image/video/short). */
   media?: {
     type: "text" | "image" | "video" | "short";

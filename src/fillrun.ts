@@ -18,6 +18,8 @@ import { deadlineFromNow, forceGc, hostQueue, memoryGuard, planFill, resolveLimi
 import { describeLimit } from "./memory.ts";
 import { describeBudget, footprintOf, type IndexFootprint } from "./storage.ts";
 import { saveIndex } from "./server.ts";
+import { embedAll, embeddingsEnabled, storeVector } from "./embed.ts";
+import type { CrawledDoc } from "./types.ts";
 import type { InvertedIndex } from "./index/invertedIndex.ts";
 
 export interface FillOptions {
@@ -33,6 +35,36 @@ export interface FillOptions {
   memoryPct?: number;
   onProgress?: (line: string) => void;
   signal?: { stopped: boolean };
+}
+
+/**
+ * Attach vectors to pages that do not have one yet.
+ *
+ * Done in the same pass as the crawl, on purpose: a backfill job would mean a
+ * second full read of the corpus and a second set of requests. Returns how many
+ * were embedded, and never throws — a semantic layer that is missing or slow
+ * must not stop the crawl.
+ */
+export async function embedNewDocs(idx: InvertedIndex, sinceCount: number): Promise<number> {
+  if (!CONFIG.embeddings.embedOnCrawl || !embeddingsEnabled()) return 0;
+  const pending: CrawledDoc[] = [];
+  for (const doc of idx.docs.values()) {
+    if (!doc.vec && doc.text.trim().length > 0) pending.push(doc);
+    // Bound the work per round so one pass cannot become a memory event.
+    if (pending.length >= 200) break;
+  }
+  if (pending.length === 0) return 0;
+
+  const vectors = await embedAll(pending.map((d) => `${d.title}. ${d.text}`));
+  if (!vectors || vectors.length !== pending.length) return 0;
+  let n = 0;
+  for (let i = 0; i < pending.length; i++) {
+    const vec = vectors[i];
+    if (!vec || vec.length === 0) continue;
+    pending[i].vec = storeVector(vec);
+    n++;
+  }
+  return n;
 }
 
 export interface FillResult {
@@ -179,6 +211,7 @@ export async function runFill(idx: InvertedIndex, opts: FillOptions = {}): Promi
       () => {},
     );
     fetched += res.crawled + res.errors;
+    const embedded = await embedNewDocs(idx, before);
     const pruned = round % 3 === 0 || idx.docCount === before ? pruneIndex(idx) : 0;
     // Collect before measuring: RSS is a high-water mark in this engine, so the
     // guard below would otherwise stop the run on memory that is already free.

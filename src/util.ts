@@ -25,3 +25,21 @@ export function hash(s: string): string {
 export function normalizeText(text: string): string {
   return text.toLowerCase().replace(/\s+/g, " ").trim();
 }
+
+/** base64 for a byte array, without pulling in a dependency. */
+export function bytesToBase64(bytes: Uint8Array | Int8Array): string {
+  let binary = "";
+  const view = bytes instanceof Int8Array ? new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength) : bytes;
+  const chunk = 0x8000;
+  for (let i = 0; i < view.length; i += chunk) {
+    binary += String.fromCharCode(...view.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+export function base64ToBytes(b64: string): Int8Array {
+  const binary = atob(b64);
+  const raw = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) raw[i] = binary.charCodeAt(i);
+  return new Int8Array(raw.buffer);
+}

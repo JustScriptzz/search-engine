@@ -256,6 +256,36 @@ verticals: {
     thumbMaxWidth: 640,
   },
 
+  embeddings: {
+    // Semantic layer, entirely optional: without a key in the environment the
+    // engine is pure BM25 and nothing else changes.
+    //
+    // Which service provides it is an implementation detail, kept in the
+    // environment and never surfaced in the UI, the API or the logs.
+    enabled: true,
+    // Pages are truncated before embedding: embedding models cap input length,
+    // and the opening of a page carries its topic.
+    maxInputChars: 4000,
+    // Inputs per request. Batching is the difference between a fill that takes
+    // an hour and one that takes ten minutes.
+    batchSize: 16,
+    // Ask for a shorter vector when the service supports the parameter.
+    // 1024 float32 would be 4 KB per page; int8 storage brings that to 1 KB.
+    dimensions: 0, // 0 = whatever the service returns
+    // How much a strong semantic match can lift a keyword score. Deliberately
+    // modest: exact phrases must still win, which is why this multiplies the
+    // keyword score instead of replacing it.
+    weight: 0.6,
+    // Candidates to score against the vector store.
+    candidateLimit: 400,
+    timeoutMs: 20_000,
+    maxRetries: 3,
+    // Query embeddings are cached: the same question should not cost two calls.
+    queryCacheSize: 200,
+    // Attach vectors to pages as they are crawled, in the same pass.
+    embedOnCrawl: true,
+  },
+
   trust: {
     // Two tiers of source. Curated = allowlisted or reached from our seed list,
     // i.e. somewhere we chose on purpose. Discovered = found by Common Crawl or
