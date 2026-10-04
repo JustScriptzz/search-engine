@@ -251,6 +251,26 @@ function embeddingReport(idx: InvertedIndex) {
   return embeddingStatus(idx.docCount, embedded);
 }
 
+/**
+ * Verify the key actually works, on demand.
+ *
+ * Without this there is no way to tell a valid key from an invalid one until a
+ * crawl has run, because the layer stays quiet while the corpus has no vectors
+ * — `dimensions: 0` is ambiguous between "not called yet" and "rejected".
+ * One tiny request settles it.
+ */
+async function probeEmbeddings(): Promise<Record<string, unknown>> {
+  const before = embeddingStatus(0, 0);
+  const vec = await embedQuery("connectivity check");
+  const after = embeddingStatus(0, 0);
+  return {
+    ok: vec !== null,
+    dimensions: after.dimensions,
+    // Names neither the service nor the model.
+    error: after.lastError ?? before.lastError ?? null,
+  };
+}
+
 /** Reachability probe cache for /api/doctor, so the UI can ask without
  *  re-fetching 40 hosts on every poll. */
 const PROBE_TTL = 10 * 60 * 1000;
@@ -452,6 +472,9 @@ const deepParam = url.searchParams.get("deep");
       // is actually in the index, and whether we can still reach the hosts we
       // are supposed to be crawling (providers often block datacenter IPs).
       if (url.pathname === "/api/doctor") {
+        // ?probe=embeddings makes one live call so a key can be verified without
+        // waiting for a crawl.
+        const embedProbe = url.searchParams.get("probe") === "embeddings" ? await probeEmbeddings() : undefined;
         const verticals: Record<string, number> = { text: 0, image: 0, video: 0, short: 0 };
         const perHost = new Map<string, number>();
         for (const doc of idx.docs.values()) {
@@ -517,7 +540,7 @@ const deepParam = url.searchParams.get("deep");
             memory: memoryReport(),
             // Whether the semantic layer is configured and how much of the
             // corpus carries a vector. Names no service and no model.
-            embeddings: embeddingReport(idx),
+            embeddings: embedProbe ? { ...embeddingReport(idx), probe: embedProbe } : embeddingReport(idx),
             verticals,
             topHosts: [...perHost.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20),
             probes: probe,
