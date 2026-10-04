@@ -262,6 +262,14 @@ verticals: {
     //
     // Which service provides it is an implementation detail, kept in the
     // environment and never surfaced in the UI, the API or the logs.
+    //
+    // The endpoint and model live here rather than in .env so there is exactly
+    // one thing to configure: put the key in .env and it works.
+    baseUrl: "https://integrate.api.nvidia.com/v1",
+    model: "nvidia/nemotron-3-embed-1b",
+    // Optional overrides, mostly for testing against a local service.
+    baseUrlEnv: "EMBEDDING_BASE_URL",
+    modelEnv: "EMBEDDING_MODEL",
     enabled: true,
     // Pages are truncated before embedding: embedding models cap input length,
     // and the opening of a page carries its topic.

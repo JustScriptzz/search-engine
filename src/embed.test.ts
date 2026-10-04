@@ -15,6 +15,7 @@ import {
   storeVector,
 } from "./embed.ts";
 import { CONFIG } from "./config.ts";
+import { embeddingConfig as embeddingConfigForTest } from "./embed.ts";
 
 const realFetch = globalThis.fetch;
 const KEY = "test-key-not-real";
@@ -103,6 +104,28 @@ describe("quantisation", () => {
     forgetVector("d1");
     // reloading works and is the same data
     expect(Array.from(loadVector("d1", stored)!)).toHaveLength(3);
+  });
+});
+
+describe("configuration", () => {
+  test("only the key is required", () => {
+    // Endpoint and model are configured in src/config.ts, so setting one
+    // environment variable switches the layer on.
+    process.env.EMBEDDING_API_KEY = KEY;
+    expect(embeddingsEnabled()).toBe(true);
+    expect(CONFIG.embeddings.baseUrl.startsWith("https://")).toBe(true);
+    expect(CONFIG.embeddings.model.length).toBeGreaterThan(0);
+    expect(CONFIG.embeddings.baseUrl.endsWith("/v1")).toBe(true);
+  });
+
+  test("the endpoint and model can still be overridden for testing", () => {
+    process.env[CONFIG.embeddings.baseUrlEnv] = "http://localhost:9999/v1";
+    process.env[CONFIG.embeddings.modelEnv] = "local-model";
+    const cfg = embeddingConfigForTest();
+    expect(cfg?.baseUrl).toBe("http://localhost:9999/v1");
+    expect(cfg?.model).toBe("local-model");
+    delete process.env[CONFIG.embeddings.baseUrlEnv];
+    delete process.env[CONFIG.embeddings.modelEnv];
   });
 });
 

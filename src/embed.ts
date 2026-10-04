@@ -43,10 +43,12 @@ let lastError: string | undefined;
 
 export function embeddingConfig(): EmbeddingConfig | null {
   if (!CONFIG.embeddings.enabled) return null;
+  // The key is the only thing required: the endpoint and model are configured in
+  // src/config.ts, with environment overrides for testing.
   const key = (process.env.EMBEDDING_API_KEY ?? "").trim();
   if (!key) return null;
-  const baseUrl = (process.env.EMBEDDING_BASE_URL ?? "https://integrate.api.nvidia.com/v1").replace(/\/+$/, "");
-  const model = (process.env.EMBEDDING_MODEL ?? "nvidia/nemotron-3-embed-1b").trim();
+  const baseUrl = (process.env[CONFIG.embeddings.baseUrlEnv] ?? CONFIG.embeddings.baseUrl).replace(/\/+$/, "");
+  const model = (process.env[CONFIG.embeddings.modelEnv] ?? CONFIG.embeddings.model).trim();
   return { key, baseUrl, model };
 }
 
