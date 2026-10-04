@@ -316,14 +316,14 @@ verticals: {
   },
 
 ai: {
-    // Cogito (Decart) — OpenAI-compatible. text.pollinations.ai's text API is
-    // deprecated, so the agent runs on Cogito's gpt-oss-120B weights.
+    // OpenAI-compatible chat endpoint. The key is read from the environment
+    // (COGITO_API_KEY) or a .env file, which is gitignored — deliberately not a
+    // literal here, because this file is committed to a public repository.
+    // Without a key the agent still answers, from raw index results.
     provider: "cogito",
     baseUrl: "https://api.cogito.decart.ai/v1",
     tokenEnv: "COGITO_API_KEY",
-    // Last-resort fallback so a fresh clone works with no .env setup.
-    // A .env COGITO_API_KEY (or panel env) always wins over this.
-    apiKeyFallback: "cog-live-CBUnsHwHzmrTLhpLrzWWiDIacFPDFWcQxaqZ",
+    apiKeyFallback: "",
     model: "gpt-oss:ultra-fast",
     // First slug from GET /v1/models that matches wins; gpt-oss-120b is served
     // under different ids depending on the account tier.
