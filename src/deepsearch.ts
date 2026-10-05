@@ -63,7 +63,7 @@ export function expansionTerms(
     for (const t of tokenize(doc.text)) counts.set(t, (counts.get(t) ?? 0) + 1);
     for (const [term, n] of counts) {
       if (already.has(term)) continue;
-      const df = index.index.get(term)?.size ?? 0;
+      const df = index.index.get(term)?.length ?? 0;
       if (df === 0 || df > index.docCount * 0.35) continue; // too common to help
       scores.set(term, (scores.get(term) ?? 0) + (n * Math.log(1 + index.docCount / df)));
     }

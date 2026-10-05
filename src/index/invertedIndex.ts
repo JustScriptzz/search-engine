@@ -1,4 +1,6 @@
 import { rename } from "node:fs/promises";
+import { Postings } from "./postings.ts";
+import { base64ToBytes, bytesToBase64 } from "../util.ts";
 import { tokenize } from "./tokenizer.ts";
 import { analyzeQuery, coordinationScore, coordinationWeights } from "../query.ts";
 import { CONFIG } from "../config.ts";
@@ -12,7 +14,7 @@ import type { CrawledDoc, IndexStats, SearchHit } from "../types.ts";
  * per (term, document) pair, a real page carries ~1,255 of them, so a document
  * cost ~500 KB of RAM to index 15 KB of text. The postings were 97% of the heap.
  */
-type InvertedList = Map<string, Map<string, number>>;
+type InvertedList = Map<string, Postings>;
 
 const { k1: K1, b: B, titleRepeat: TITLE_REPEAT, coordination: COORD, field: FIELD } = CONFIG.bm25;
 
@@ -44,6 +46,7 @@ function isExactHost(url: string, term: string): boolean {
 
 export class InvertedIndex {
   docs = new Map<string, CrawledDoc>();
+  /** term -> postings, stored as two typed arrays rather than a Map per term. */
   index: InvertedList = new Map();
   docLens = new Map<string, number>();
   /** Title tokens per doc, for field weighting at query time. */
@@ -53,6 +56,12 @@ export class InvertedIndex {
   /** Normalised hostnames present in the index (no "www."), for exact checks. */
   hosts = new Set<string>();
   totalLen = 0;
+  /** docId -> dense ordinal. Postings store ordinals, not ids, because that is
+   *  what lets them live in an Int32Array. Assigned in insertion order, so it is
+   *  also the order documents were added. */
+  private ordinals = new Map<string, number>();
+  /** Ordinal -> docId, the inverse, so a search hit can name its document. */
+  private byOrdinal: string[] = [];
 
   get docCount() {
     return this.docs.size;
@@ -60,6 +69,12 @@ export class InvertedIndex {
 
   get avgDocLen() {
     return this.docCount === 0 ? 0 : this.totalLen / this.docCount;
+  }
+
+  /** The dense ordinal for a document, or -1 if it is not indexed. */
+  ordinalOf(docId: string): number {
+    const o = this.ordinals.get(docId);
+    return o === undefined ? -1 : o;
   }
 
   addDocument(doc: CrawledDoc): boolean {
@@ -72,7 +87,10 @@ export class InvertedIndex {
     const len = tokens.length;
     if (len === 0) return false;
 
+    const ordinal = this.byOrdinal.length;
     this.docs.set(doc.id, doc);
+    this.ordinals.set(doc.id, ordinal);
+    this.byOrdinal.push(doc.id);
     this.docLens.set(doc.id, len);
     this.totalLen += len;
     this.titleTerms.set(doc.id, new Set(tokenize(doc.title)));
@@ -84,10 +102,10 @@ export class InvertedIndex {
     for (const [term, count] of tf) {
       let list = this.index.get(term);
       if (!list) {
-        list = new Map();
+        list = new Postings();
         this.index.set(term, list);
       }
-      list.set(doc.id, count);
+      list.add(ordinal, count);
     }
     return true;
   }
@@ -96,7 +114,9 @@ export class InvertedIndex {
   remove(docId: string): boolean {
     const doc = this.docs.get(docId);
     if (!doc) return false;
+    const ordinal = this.ordinals.get(docId);
     this.docs.delete(docId);
+    this.ordinals.delete(docId);
     this.hosts.delete(hostnameOf(doc.url));
     const len = this.docLens.get(docId);
     if (len !== undefined) {
@@ -105,15 +125,29 @@ export class InvertedIndex {
     }
     this.titleTerms.delete(docId);
     this.hostTerms.delete(docId);
+    if (ordinal === undefined) return true;
+    // Tombstone the postings, then reclaim the space where it pays. Ordinals are
+    // not reused: a dense ordinal is what keeps the arrays binary-searchable, and
+    // reusing one would resurrect postings for a document that is gone.
     for (const [term, list] of this.index) {
-      if (!list.delete(docId)) continue;
-      if (list.size === 0) this.index.delete(term);
+      if (list.remove(ordinal) && list.length === 0) this.index.delete(term);
+      else if (list.needsCompaction) list.compact();
     }
     return true;
   }
 
+  /** Rebuild ordinals after loading or bulk changes. */
+  reindexOrdinals(): void {
+    this.ordinals.clear();
+    this.byOrdinal = [];
+    for (const id of this.docs.keys()) {
+      this.ordinals.set(id, this.byOrdinal.length);
+      this.byOrdinal.push(id);
+    }
+  }
+
   private idf(term: string): number {
-    const df = this.index.get(term)?.size ?? 0;
+    const df = this.index.get(term)?.length ?? 0;
     if (df === 0) return 0;
     const N = this.docCount;
     return Math.log(1 + (N - df + 0.5) / (df + 0.5));
@@ -130,8 +164,13 @@ export class InvertedIndex {
     if (terms.length === 0 || this.docCount === 0) return [];
 
     const avgLen = this.avgDocLen || 1;
-    const scores = new Map<string, number>();
-    const matchedSets = new Map<string, Set<string>>();
+    // Accumulating into flat arrays keyed by ordinal avoids a Map per document
+    // per term, which is the same allocation problem the postings had.
+    const docCount = this.byOrdinal.length;
+    const scores = new Float64Array(docCount);
+    const touched = new Int32Array(docCount);
+    const matchedTerms = new Uint16Array(docCount);
+    const seen: number[] = [];
     const unique = [...new Set(terms)];
     const weights = coordinationWeights(plan, (t) => this.index.has(t));
 
@@ -139,21 +178,41 @@ export class InvertedIndex {
       const list = this.index.get(term);
       if (!list) continue;
       const idf = this.idf(term);
-      for (const [docId, tf] of list) {
+      for (const [ordinal, tf] of list.liveEntries()) {
+        const docId = this.byOrdinal[ordinal];
+        if (docId === undefined) continue;
+        if (scores[ordinal] === 0) seen.push(ordinal);
         const dl = this.docLens.get(docId) ?? avgLen;
         const denom = tf + K1 * (1 - B + (B * dl) / avgLen);
-        scores.set(docId, (scores.get(docId) ?? 0) + idf * ((tf * (K1 + 1)) / denom));
+        scores[ordinal] += idf * ((tf * (K1 + 1)) / denom);
+        matchedTerms[ordinal]++;
+      }
+    }
+    void touched;
+
+    const queryPhrase = normalizePhrase(plan.subject);
+
+    // Coordination needs the *set* of matched terms per document, but counting
+    // them is enough: coordinationScore only asks how many of the weighted terms
+    // were hit, and each term is visited once per document.
+    const matchedSets = new Map<string, Set<string>>();
+    for (const term of unique) {
+      const list = this.index.get(term);
+      if (!list) continue;
+      for (const [ordinal] of list.liveEntries()) {
+        const docId = this.byOrdinal[ordinal];
+        if (docId === undefined) continue;
         let set = matchedSets.get(docId);
         if (!set) matchedSets.set(docId, (set = new Set()));
         set.add(term);
       }
     }
 
-    const queryPhrase = normalizePhrase(plan.subject);
-
-    return [...scores.entries()]
-      .map(([docId, score]) => {
+    return seen
+      .map((ordinal) => {
+        const docId = this.byOrdinal[ordinal];
         const doc = this.docs.get(docId)!;
+        const score = scores[ordinal];
         const matched = matchedSets.get(docId) ?? new Set<string>();
 
         // Coordination: fraction of the query's weighted terms this doc covers.
@@ -184,7 +243,7 @@ export class InvertedIndex {
         return {
           docId,
           score: score * coord * titleFactor * hostFactor * phraseFactor,
-          matchedTerms: matched.size,
+          matchedTerms: matchedTerms[ordinal],
         };
       })
       .sort((a, b) => b.score - a.score || b.matchedTerms - a.matchedTerms)
@@ -229,7 +288,7 @@ export class InvertedIndex {
   toJSON() {
     return {
       docs: [...this.docs.values()],
-      index: [...this.index.entries()].map(([term, list]) => [term, [...list.entries()]]),
+      index: [...this.index.entries()].map(([term, list]) => [term, Array.from(list.liveEntries())]),
       docLens: [...this.docLens.entries()],
       totalLen: this.totalLen,
     };
@@ -244,20 +303,44 @@ export class InvertedIndex {
       idx.hostTerms.set(d.id, hostTokens(d.url ?? ""));
       idx.hosts.add(hostnameOf(d.url ?? ""));
     }
-    // The index is stored as [term, entries] pairs. Entries used to be
-    // [docId, {tf}] and are now [docId, tf], so accept both when loading an index
-    // written by an older build.
-    const readList = (entries: any): Map<string, number> => {
-      const list = new Map<string, number>();
-      for (const [docId, value] of entries ?? []) {
-        list.set(docId, typeof value === "number" ? value : Number(value?.tf ?? 1));
+    // Documents are loaded first so the legacy posting shapes below can resolve
+    // a document id to the ordinal the typed arrays need.
+    idx.reindexOrdinals();
+    // Postings arrive in one of three shapes, all of which exist in index files
+    // written by earlier builds:
+    //   {n, ids, tfs}     base64 typed arrays (current)
+    //   [[docId, tf], …]   JSON pairs keyed by document id (string!)
+    //   [[docId, {tf}], …] JSON pairs with a wrapper object
+    // The legacy shapes name documents by their id, so each one is resolved to a
+    // dense ordinal here; anything that no longer resolves (a pruned document) is
+    // dropped rather than silently becoming a wrong ordinal.
+    const readPostingList = (value: any): Postings => {
+      if (value && typeof value === "object" && !Array.isArray(value) && typeof value.ids === "string") {
+        const ids = new Int32Array(base64ToBytes(value.ids).buffer);
+        const tfs = new Float32Array(base64ToBytes(value.tfs).buffer);
+        const n = value.n ?? ids.length;
+        return Postings.from(ids.subarray(0, n), tfs.subarray(0, n));
       }
-      return list;
+      const pairs: Array<[any, any]> = Array.isArray(value) ? value : [];
+      const resolved: Array<[number, number]> = [];
+      for (const [docId, tf] of pairs) {
+        const n = typeof tf === "number" ? tf : Number(tf?.tf ?? 1);
+        if (!Number.isFinite(n) || n <= 0) continue;
+        const asNumber = Number(docId);
+        const ord = Number.isFinite(asNumber) && typeof docId !== "string"
+          ? asNumber
+          : idx.ordinalOf(String(docId));
+        if (ord >= 0) resolved.push([ord, n]);
+      }
+      resolved.sort((a, b) => a[0] - b[0]);
+      const p = new Postings(Math.max(4, resolved.length));
+      for (const [ord, n] of resolved) p.add(ord, n);
+      return p;
     };
     if (Array.isArray(data.index)) {
-      for (const [term, entries] of data.index) idx.index.set(term, readList(entries));
+      for (const [term, entries] of data.index) idx.index.set(term, readPostingList(entries));
     } else if (data.index && typeof data.index === "object") {
-      for (const [term, entries] of Object.entries(data.index)) idx.index.set(term, readList(entries));
+      for (const [term, entries] of Object.entries(data.index)) idx.index.set(term, readPostingList(entries));
     }
     for (const [id, len] of data.docLens ?? []) idx.docLens.set(id, len);
     idx.totalLen = data.totalLen ?? 0;
@@ -296,16 +379,13 @@ export class InvertedIndex {
       await put('],"index":[');
       first = true;
       for (const [term, list] of this.index) {
-        const entries: string[] = [];
-        for (const [id, tf] of list) entries.push(JSON.stringify([id, tf]));
-        // Same shape as before (array of [term, entries] pairs) so an index
-        // written here still loads in an older build, and vice versa.
-        // Same shape as before (array of [term, entries] pairs) so an index
-        // written here still loads in an older build, and vice versa.
-        // `entries` holds pre-stringified ["id",{"tf":n}] pairs, so the inner
-        // array is assembled by hand — wrapping it in JSON.stringify would
-        // produce an array of strings instead of an array of pairs.
-        await put((first ? "" : ",") + "[" + JSON.stringify(term) + ",[" + entries.join(",") + "]]");
+        // Postings are two typed arrays, so they go out as base64 of the raw
+        // bytes: compact and quick to write. Index files written by an older
+        // build used a JSON array of [docId, tf] pairs, and the loader accepts
+        // both, so an upgrade does not invalidate the corpus.
+        const ids = bytesToBase64(new Uint8Array(list.ids.buffer, list.ids.byteOffset, list.used * 4));
+        const tfs = bytesToBase64(new Uint8Array(list.tfs.buffer, list.tfs.byteOffset, list.used * 4));
+        await put((first ? "" : ",") + JSON.stringify([term, { n: list.used, ids, tfs }]));
         first = false;
       }
       await put('],"docLens":[');

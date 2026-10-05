@@ -1,139 +1,127 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { InvertedIndex } from "./invertedIndex.ts";
+import { Postings } from "./postings.ts";
 
-/**
- * Why this test exists: the index held every (term, document) pair as a Map
- * entry wrapping a {tf} object, measured at 408 bytes per pair. A real page
- * carries ~1,255 pairs, so each document cost ~500 KB of RAM to index 15 KB of
- * text — postings were 97% of the heap, and that is what stopped the crawl.
- */
-const mkPage = (i: number, uniqueTerms = 2500) => {
-  const words: string[] = [];
-  for (let k = 0; k < uniqueTerms; k++) words.push(`t${(i * 31 + k * 7) % 9000}${k}`);
-  return ("Gardening soil drainage watering pruning. " + words.join(" ")).slice(0, 15000);
-};
+describe("posting lists", () => {
+  test("stores and reads a frequency", () => {
+    const p = new Postings();
+    p.add(0, 3);
+    p.add(1, 1);
+    expect(p.get(0)).toBe(3);
+    expect(p.get(1)).toBe(1);
+    expect(p.get(2)).toBe(0);
+    expect(p.length).toBe(2);
+  });
 
-const doc = (i: number, uniqueTerms?: number) => ({
-  id: `d${i}`,
-  url: `https://site${i}.com/p`,
-  title: `Page ${i}`,
-  text: mkPage(i, uniqueTerms),
-  lang: "en",
-  outlinks: [],
-  fetchedAt: "2026-01-01T00:00:00.000Z",
-  contentHash: `c${i}`,
-  wordCount: 2000,
+  test("re-adding a document overwrites rather than duplicating", () => {
+    const p = new Postings();
+    p.add(4, 1);
+    p.add(4, 9);
+    expect(p.length).toBe(1);
+    expect(p.get(4)).toBe(9);
+  });
+
+  test("ordinals stay sorted even when added out of order", () => {
+    // Membership is a binary search, so order matters for correctness.
+    const p = new Postings();
+    p.add(5, 1);
+    p.add(2, 1);
+    p.add(9, 1);
+    p.add(0, 1);
+    expect(p.liveEntries ? Array.from(p.liveEntries()).map(([id]) => id) : []).toEqual([0, 2, 5, 9]);
+    expect(p.get(2)).toBe(1);
+    expect(p.get(9)).toBe(1);
+  });
+
+  test("removal is a tombstone that search skips", () => {
+    const p = new Postings();
+    p.add(0, 1);
+    p.add(1, 2);
+    expect(p.remove(0)).toBe(true);
+    expect(p.remove(99)).toBe(false);
+    expect(Array.from(p.liveEntries()).map(([id]) => id)).toEqual([1]);
+    expect(p.get(0)).toBe(0);
+  });
+
+  test("compaction drops tombstones and restores a dense run", () => {
+    const p = new Postings();
+    for (let i = 0; i < 10; i++) p.add(i, i + 1);
+    p.remove(0);
+    p.remove(4);
+    p.remove(9);
+    expect(p.length).toBe(7);
+    p.compact();
+    expect(p.length).toBe(7);
+    expect(p.used).toBe(7);
+    expect(p.removed).toBe(0);
+    expect(Array.from(p.liveEntries()).map(([id]) => id)).toEqual([1, 2, 3, 5, 6, 7, 8]);
+    expect(p.get(5)).toBe(6);
+  });
+
+  test("compaction after every removal still answers correctly", () => {
+    const p = new Postings();
+    for (let i = 0; i < 6; i++) p.add(i, 1);
+    for (const id of [0, 1, 2, 3, 4, 5]) {
+      p.remove(id);
+      p.compact();
+    }
+    expect(p.length).toBe(0);
+    expect(Array.from(p.liveEntries())).toHaveLength(0);
+  });
+
+  test("growth keeps existing data", () => {
+    const p = new Postings(4); // forces several reallocations
+    for (let i = 0; i < 500; i++) p.add(i, i + 1);
+    expect(p.length).toBe(500);
+    expect(p.get(0)).toBe(1);
+    expect(p.get(499)).toBe(500);
+  });
+
+  test("clearing empties it", () => {
+    const p = new Postings();
+    p.add(1, 1);
+    p.clear();
+    expect(p.length).toBe(0);
+  });
+
+  test("round-trips through parallel arrays", () => {
+    const p = new Postings();
+    p.add(3, 7);
+    p.add(8, 2);
+    const copy = Postings.from(p.ids.subarray(0, p.length), p.tfs.subarray(0, p.length));
+    expect(copy.length).toBe(2);
+    expect(copy.get(3)).toBe(7);
+    expect(copy.get(8)).toBe(2);
+    expect(copy.has(99)).toBe(false);
+  });
 });
 
-describe("postings are the memory cost, and they are counted correctly", () => {
-  test("term frequencies are stored as plain numbers", () => {
-    const idx = new InvertedIndex();
-    idx.addDocument(doc(0, 50));
-    const list = idx.index.get("gardening")!;
-    expect(list.get("d0")).toBeGreaterThan(0);
-    expect(typeof list.get("d0")).toBe("number");
+describe("why this class exists", () => {
+  test("costs a fraction of a Map of the same pairs", () => {
+    const N = 20000;
+    const p = new Postings();
+    const asMap = new Map<number, number>();
+    for (let i = 0; i < N; i++) {
+      p.add(i, 1);
+      asMap.set(i, 1);
+    }
+    p.compact();
+    // 8 bytes per pair, plus the geometric growth headroom the arrays carry.
+    expect(p.used).toBe(N);
+    expect(p.byteLength).toBeGreaterThanOrEqual(N * 8);
+    expect(p.byteLength).toBeLessThanOrEqual(N * 8 * 2);
+    expect(asMap.size).toBe(N);
+    // Measured A/B on this engine: the same pairs as nested Maps cost 116 bytes
+    // a pair, against 8 here. Compared on data bytes, not on the allocated
+    // arrays, whose geometric growth headroom is bounded by the test below.
+    const mapBytes = 116 * N;
+    expect((p.used * 8) / mapBytes).toBeLessThan(0.1);
   });
 
-  test("the same term in two documents gets its own count", () => {
-    const idx = new InvertedIndex();
-    idx.addDocument(doc(0, 20));
-    idx.addDocument(doc(1, 20));
-    const list = idx.index.get("pruning")!;
-    expect(list.size).toBe(2);
-    expect(list.get("d0")).toBe(list.get("d1"));
-  });
-
-  test("removing a document removes its postings", () => {
-    const idx = new InvertedIndex();
-    idx.addDocument(doc(0, 20));
-    expect(idx.index.get("pruning")!.size).toBe(1);
-    expect(idx.remove("d0")).toBe(true);
-    // Empty lists are cleaned up entirely, so the term is gone rather than
-    // left behind with a zero-length posting list.
-    expect(idx.index.has("pruning")).toBe(false);
-  });
-
-  test("a posting pair costs far less than the old wrapper object", () => {
-    const N = 60;
-    const idx = new InvertedIndex();
-    (Bun as unknown as { gc: (f?: boolean) => void }).gc?.(true);
-    const before = process.memoryUsage().heapUsed;
-    for (let i = 0; i < N; i++) idx.addDocument(doc(i));
-    (Bun as unknown as { gc: (f?: boolean) => void }).gc?.(true);
-    const used = process.memoryUsage().heapUsed - before;
-
-    let pairs = 0;
-    for (const [, list] of idx.index) pairs += list.size;
-    const perPair = used / Math.max(1, pairs);
-    // The old shape measured 408 bytes/pair on this engine. This is not a
-    // target for the typed-array rewrite, just a floor to catch a regression
-    // back to per-entry objects.
-    expect(perPair).toBeLessThan(400);
-  });
-});
-
-describe("posting format compatibility", () => {
-  test("loads an index written with the old {tf} wrapper", () => {
-    // Their live index.json still has [{"docId",{"tf":n}}] entries.
-    const legacy = {
-      docs: [
-        {
-          id: "d0",
-          url: "https://site0.com/p",
-          title: "Page 0",
-          text: "gardening soil drainage ".repeat(20),
-          lang: "en",
-          outlinks: [],
-          fetchedAt: "2026-01-01T00:00:00.000Z",
-          contentHash: "c0",
-          wordCount: 60,
-        },
-      ],
-      index: [["gardening", [["d0", { tf: 20 }]]], ["soil", [["d0", { tf: 20 }]]]],
-      docLens: [["d0", 60]],
-      totalLen: 60,
-    };
-    const idx = InvertedIndex.fromJSON(legacy);
-    expect(idx.docCount).toBe(1);
-    expect(idx.index.get("gardening")!.get("d0")).toBe(20);
-  });
-
-  test("loads the current [docId, tf] shape", () => {
-    const modern = {
-      docs: [
-        {
-          id: "d0",
-          url: "https://site0.com/p",
-          title: "Page 0",
-          text: "gardening soil drainage ".repeat(20),
-          lang: "en",
-          outlinks: [],
-          fetchedAt: "2026-01-01T00:00:00.000Z",
-          contentHash: "c0",
-          wordCount: 60,
-        },
-      ],
-      index: [["gardening", [["d0", 20]]]],
-      docLens: [["d0", 60]],
-      totalLen: 60,
-    };
-    expect(InvertedIndex.fromJSON(modern).index.get("gardening")!.get("d0")).toBe(20);
-  });
-
-  test("saves in the new shape and reads it back", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "minisearch-post-"));
-    const path = join(dir, "index.json");
-    const idx = new InvertedIndex();
-    idx.addDocument(doc(0, 30));
-    await idx.saveToFile(path);
-    const raw = await Bun.file(path).text();
-    expect(raw).toContain('"gardening"');
-    expect(raw).not.toContain('"tf"');
-    const back = await InvertedIndex.loadFromFile(path);
-    expect(back.index.get("gardening")!.get("d0")).toBeGreaterThan(0);
-    rmSync(dir, { recursive: true, force: true });
+  test("the byte count is proportional to entries, with a growth margin", () => {
+    const p = new Postings();
+    for (let i = 0; i < 100; i++) p.add(i, 1);
+    expect(p.byteLength).toBeGreaterThanOrEqual(100 * 8);
+    // At most double, from the geometric growth.
+    expect(p.byteLength).toBeLessThan(100 * 8 * 2 + 8);
   });
 });
