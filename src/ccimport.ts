@@ -24,12 +24,81 @@ import { normalizeText } from "./index/tokenizer.ts";
 import type { InvertedIndex } from "./index/invertedIndex.ts";
 import type { CrawledDoc } from "./types.ts";
 
+/**
+ * One Common Crawl capture record.
+ *
+ * The important part is that this is a *pointer*: `filename`, `offset` and
+ * `length` say where inside a WARC file this capture lives. Extracting just the
+ * URL — the obvious thing to do with `sed` — throws away the only way to get
+ * the page text, leaving millions of addresses and nothing to search.
+ */
 export interface CcRecord {
   url: string;
   mime: string;
   filename: string;
   offset: number;
   length: number;
+}
+
+/** Keep only records we can actually turn into a document. */
+export function usableRecord(o: any): boolean {
+  const mime = String(o?.mime ?? "");
+  if (!/text\/html|application\/xhtml/i.test(mime)) return false;
+  if (typeof o?.filename !== "string" || !o.filename) return false;
+  // CDX writes these as *strings* ("offset": "896"), and Number.isFinite does
+  // not coerce, so they have to be converted before they are checked.
+  const offset = Number(o?.offset);
+  const length = Number(o?.length);
+  if (!Number.isFinite(offset) || !Number.isFinite(length)) return false;
+  if (offset < 0 || length < 200) return false; // stubs and redirects
+  return true;
+}
+
+/** Bare IP hosts: a Common Crawl index shard starts with them and they are junk. */
+export function isIpHost(url: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    return /^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(":");
+  } catch {
+    return true; // unparseable: skip
+  }
+}
+
+/**
+ * Parse one line of a CDX shard.
+ *
+ * Format is `SURTKEY TIMESTAMP {json}` — the JSON starts at the first brace, so
+ * the key and timestamp are skipped rather than pattern-matched.
+ */
+export function parseCdxLine(line: string): CcRecord | null {
+  const start = line.indexOf("{");
+  if (start === -1) return null;
+  let o: any;
+  try {
+    o = JSON.parse(line.slice(start));
+  } catch {
+    return null;
+  }
+  if (!usableRecord(o)) return null;
+  const url = String(o.url ?? "");
+  if (!url || isIpHost(url)) return null;
+  return { url, mime: String(o.mime), filename: o.filename, offset: Number(o.offset), length: Number(o.length) };
+}
+
+/**
+ * Spread a selection across a shard.
+ *
+ * Shards are sorted by SURT key, so the head of one file is a single alphabetical
+ * cluster (`1.000.000.000`, `165.22.100.0`, …) rather than a sample of the web.
+ * Taking the first N would give one narrow slice; a stride walks the whole file.
+ */
+export function sampleWithStride<T>(items: T[], wanted: number, totalLines: number): T[] {
+  if (wanted <= 0 || items.length === 0) return [];
+  if (items.length <= wanted) return items;
+  const stride = Math.max(1, Math.floor(totalLines / wanted));
+  const out: T[] = [];
+  for (let i = 0; i < items.length && out.length < wanted; i += stride) out.push(items[i]);
+  return out;
 }
 
 /** One index entry, parsed from the JSON-lines the index streams back. */
@@ -41,12 +110,17 @@ export function parseIndexLine(line: string): CcRecord | null {
   } catch {
     return null;
   }
-  const mime = String(o.mime ?? "");
-  if (!/text\/html|application\/xhtml/i.test(mime)) return null;
-  if (typeof o.filename !== "string" || typeof o.offset !== "number" || typeof o.length !== "number") {
-    return null;
-  }
-  return { url: String(o.url), mime, filename: o.filename, offset: o.offset, length: o.length };
+  if (!usableRecord(o)) return null;
+  // Coerced for the same reason as in parseCdxLine: these arrive as strings, and
+  // a string offset silently turns the range request into string concatenation
+  // ("896" + 2707 = "8962707"), which fetches the wrong bytes and imports nothing.
+  return {
+    url: String(o.url),
+    mime: String(o.mime),
+    filename: o.filename,
+    offset: Number(o.offset),
+    length: Number(o.length),
+  };
 }
 
 /** A range request is only worth making if it stays inside the record. */
@@ -155,6 +229,112 @@ export async function ccFetchHtml(rec: CcRecord, timeoutMs = 20_000): Promise<st
  * Pull pages for one host into the index. Returns what happened per host, so a
  * caller (or the CLI) can report honestly instead of pretending it worked.
  */
+/**
+ * Turn records from a local CDX shard into indexed documents.
+ *
+ * This is the version of "download a shard and index it" that actually works:
+ * each record carries the WARC pointer, so the page text comes out of Common
+ * Crawl's storage with one range request — no request to the origin at all.
+ * Shard 0 begins with bare IP addresses because shards are sorted by SURT key,
+ * so the selection is spread with a stride instead of taking the head.
+ */
+export async function importRecords(
+  idx: InvertedIndex,
+  records: CcRecord[],
+  opts: {
+    maxPages?: number;
+    perHost?: number;
+    shouldStop?: () => boolean;
+    onDoc?: (url: string, title: string) => void;
+    onProgress?: (done: number, added: number, skipped: number) => void;
+  } = {},
+): Promise<{ tried: number; added: number; skipped: number; stopped?: string }> {
+  const maxPages = opts.maxPages ?? 500;
+  const perHost = opts.perHost ?? 5;
+  const fromHosts = new Map<string, number>();
+  let tried = 0;
+  let added = 0;
+  let skipped = 0;
+  let stopped: string | undefined;
+
+  for (const rec of records) {
+    if (tried >= maxPages) {
+      stopped = `page cap (${maxPages})`;
+      break;
+    }
+    if (opts.shouldStop?.()) {
+      stopped = "caller asked to stop";
+      break;
+    }
+    const norm = normalizeUrl(rec.url);
+    if (!norm) {
+      skipped++;
+      continue;
+    }
+    let host = "";
+    try {
+      host = new URL(norm).hostname.replace(/^www\./, "");
+    } catch {
+      skipped++;
+      continue;
+    }
+    // Politeness: a handful of pages per host, so one big site cannot take the
+    // whole budget and we do not hammer anyone.
+    const used = fromHosts.get(host) ?? 0;
+    if (used >= perHost) {
+      skipped++;
+      continue;
+    }
+    fromHosts.set(host, used + 1);
+    if (idx.docs.has(hash(norm))) {
+      skipped++;
+      continue;
+    }
+
+    tried++;
+    const doc = await recordToDoc(norm, rec);
+    if (!doc) {
+      skipped++;
+      continue;
+    }
+    if (idx.addDocument(doc)) {
+      added++;
+      opts.onDoc?.(doc.url, doc.title);
+    } else {
+      skipped++;
+    }
+    if (tried % 25 === 0) opts.onProgress?.(tried, added, skipped);
+  }
+  return { tried, added, skipped, stopped };
+}
+
+/** Fetch one capture and turn it into a document, or null if it is not worth it. */
+async function recordToDoc(norm: string, rec: CcRecord): Promise<CrawledDoc | null> {
+  const html = await ccFetchHtml(rec);
+  if (!html) return null;
+  const parsed = parseHtml(html, norm);
+  const text = parsed.text.slice(0, CONFIG.crawl.maxTextChars);
+  const words = text.split(/\s+/).filter(Boolean).length;
+  if (words < CONFIG.quality.minWords || !isAllowedLanguage(text)) return null;
+  if (rejectDoc({ url: norm, text, wordCount: words, linkDensity: parsed.linkDensity }).junk) return null;
+  return {
+    id: hash(norm),
+    url: norm,
+    title: parsed.title || norm,
+    text,
+    lang: parsed.lang,
+    linkDensity: parsed.linkDensity,
+    media: parsed.media,
+    // Provenance: this text came from Common Crawl's storage, not from us
+    // fetching the origin.
+    viaCommonCrawl: true,
+    outlinks: [],
+    fetchedAt: new Date().toISOString(),
+    contentHash: hash(normalizeText(text)),
+    wordCount: words,
+  };
+}
+
 export async function importHost(
   idx: InvertedIndex,
   host: string,

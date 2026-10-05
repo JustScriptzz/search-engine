@@ -12,6 +12,8 @@ import { statSync } from "node:fs";
 import { importHost } from "./ccimport.ts";
 import { describeBudget, footprintOf, runAllowance } from "./storage.ts";
 import { runFill } from "./fillrun.ts";
+import { importRecords, parseCdxLine, sampleWithStride, type CcRecord } from "./ccimport.ts";
+import { deadlineFromNow, resolveLimit, rssBytes } from "./fill.ts";
 
 import { FAMOUS_SITES } from "./famous.ts";
 
@@ -42,6 +44,15 @@ async function sitemapPass(urls: string[], maxHosts: number): Promise<string[]> 
     out.push(...res.urls);
   }
   return out;
+}
+
+/** Size of the index file on disk, or 0 before the first save. */
+function indexBytes(): number {
+  try {
+    return statSync(CONFIG.server.indexPath).size;
+  } catch {
+    return 0;
+  }
 }
 
 /** Drop documents that today's filters reject. Used by `prune` and by `fill`
@@ -190,6 +201,60 @@ if (cmd === "sitemap" || cmd === "crt") {
     maxPages: parseInt(arg("--max-pages", "100000")!),
   });
   console.log(`fill done. rounds=${res.rounds} fetched=${res.fetched} added=${res.added} docs=${idx.docCount} (${res.stoppedBecause})`);
+} else if (cmd === "ccfile") {
+  // Convert a local Common Crawl CDX shard into indexed documents.
+  //
+  // The point of this over `sed`-ing the urls out: a CDX line is a pointer
+  // (filename/offset/length) into a WARC file. Keep it and one range request per
+  // record yields the page text; drop it and you have millions of addresses and
+  // nothing to search.
+  const file = arg("--file") ?? "data/cdx.txt";
+  const wanted = parseInt(arg("--limit", "400")!);
+  const perHost = parseInt(arg("--per-host", "5")!);
+  const maxPages = parseInt(arg("--max-pages", String(wanted))!);
+  const maxMinutes = parseInt(arg("--max-minutes", "20")!);
+
+  let raw = "";
+  try {
+    raw = await Bun.file(file).text();
+  } catch {
+    console.error(`cannot read ${file}`);
+    process.exit(1);
+  }
+  const lines = raw.split("\n");
+  const records: CcRecord[] = [];
+  for (const line of lines) {
+    const rec = parseCdxLine(line);
+    if (rec) records.push(rec);
+  }
+  // Shards are sorted by SURT key, so the head of a file is one narrow
+  // alphabetical cluster. Walk the whole thing instead.
+  const picked = sampleWithStride(records, wanted, lines.length);
+  const hosts = new Set(picked.map((r) => {
+    try {
+      return new URL(r.url).hostname.replace(/^www\./, "");
+    } catch {
+      return "";
+    }
+  }).filter(Boolean));
+  console.log(
+    `${file}: ${lines.length} lines -> ${records.length} usable records -> ${picked.length} selected ` +
+      `across ${hosts.size} hosts`,
+  );
+
+  const idx = await loadIndex();
+  const deadline = deadlineFromNow(maxMinutes);
+  const memoryCeiling = resolveLimit().bytes * CONFIG.storage.fillMemoryPct;
+  const res = await importRecords(idx, picked, {
+    maxPages,
+    perHost,
+    shouldStop: () => Date.now() > deadline || rssBytes() > memoryCeiling,
+    onProgress: (done, added, skipped) => process.stdout.write(`\r  fetched ${done}, added ${added}, skipped ${skipped}   `),
+  });
+  process.stdout.write("\n");
+  const saved = await saveIndex(idx);
+  console.log(`ccfile done: tried=${res.tried} added=${res.added} skipped=${res.skipped}${res.stopped ? ` (${res.stopped})` : ""}`);
+  console.log(describeBudget(footprintOf(idx.docCount, idx.index.size, indexBytes())));
 } else if (cmd === "crawl") {
   let seeds = await readSeeds(arg("--seeds"));
   // Optional web-scale discovery: pull real URLs from the Common Crawl index.
