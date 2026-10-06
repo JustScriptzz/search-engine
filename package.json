@@ -1,13 +1,17 @@
 {
   "name": "search-engine",
-  "version": "0.1.0",
+  "version": "0.3.1",
   "description": "Minimal production-oriented web search engine: crawl + BM25 index + query API + UI",
   "type": "module",
   "scripts": {
     "crawl": "bun src/cli.ts crawl --seeds seeds.txt --max 100",
+    "start": "bun run pterodactyl.ts",
     "serve": "bun src/cli.ts serve --port 3000",
     "search": "bun src/cli.ts search --query",
     "test": "bun test"
+  },
+  "engines": {
+    "bun": ">=1.1.0"
   },
   "devDependencies": {
     "@types/bun": "latest"

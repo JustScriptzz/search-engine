@@ -471,6 +471,16 @@ const deepParam = url.searchParams.get("deep");
       // Answers "why is nothing indexed?" with facts instead of guesswork: what
       // is actually in the index, and whether we can still reach the hosts we
       // are supposed to be crawling (providers often block datacenter IPs).
+      // ---- health check -----------------------------------------------------
+      // Deliberately cheap and dependency-free: container platforms poll this, so
+      // it must not touch the index, the network, or any provider.
+      if (url.pathname === "/healthz") {
+        return Response.json(
+          { ok: true, service: CONFIG.name, version: CONFIG.version, docs: idx.docCount, uptimeSec: Math.round(process.uptime()) },
+          { headers: cors },
+        );
+      }
+
       if (url.pathname === "/api/doctor") {
         // ?probe=embeddings makes one live call so a key can be verified without
         // waiting for a crawl.

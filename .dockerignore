@@ -1,0 +1,22 @@
+# Everything that must never go into the image.
+.git
+.gitignore
+.github
+node_modules
+data
+*.log
+.DS_Store
+
+# Keys and certificates. Mounted or injected as environment variables at runtime.
+.env
+.env.*
+!.env.example
+*.pem
+certs
+
+# Local artefacts and screenshots
+.openchamber
+*.png
+*.jpg
+CLAUDE.md
+AGENTS.md

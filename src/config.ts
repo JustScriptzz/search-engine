@@ -3,14 +3,22 @@ import { FAMOUS_SITES } from "./famousSites.ts";
 
 const FAMOUS_SITE_URLS = FAMOUS_SITES.map((s) => s.url);
 
+/** Read a setting from the environment, falling back to our default. Every value
+ *  here is overridable so the same image runs on a panel, a container or a
+ *  laptop without being edited. */
+function env(name: string, fallback: string): string {
+  const v = (process.env[name] ?? "").trim();
+  return v || fallback;
+}
+
 export const CONFIG = {
   name: "MiniSearch",
   version: "0.3.1",
 
   server: {
-    port: 3000,
-    host: "0.0.0.0",
-    indexPath: "data/index.json",
+    port: Number.parseInt(env("SERVER_PORT", "3000"), 10) || 3000,
+    host: env("HOST", "0.0.0.0"),
+    indexPath: env("SERVER_INDEX_PATH", "data/index.json"),
     cors: true,
     // SSE stays open while the model thinks; Bun's default 10s idleTimeout
     // would cut it off. Unit is seconds (Bun caps it at 255).
