@@ -135,3 +135,28 @@ options:
 
 If the hostname changes, the trust lists don't care — they are domain-based, not
 hostname-based.
+
+---
+
+## Evaluated and rejected: Cloudflare Workers (2026-10-06)
+
+Checked against Cloudflare's own limits page, not from memory. A Worker cannot
+host this app, on either plan:
+
+| Limit (verified) | What the app needs | Result |
+| --- | --- | --- |
+| 128 MB memory per isolate, both plans | ~45 KB/doc measured → 128 MB holds ~2,800 docs, and the isolate also runs the server | Only a tenth of the current corpus fits |
+| 10 ms CPU per request on Free (Paid: 30 s default, 5 min max) | a search over the current index takes ~100–900 ms of CPU | Free tier dies on nearly every query |
+| No filesystem | `index.json` lives on disk; the code uses `Bun.file`, `node:fs`, `Bun.serve` | Porting means replacing the runtime, not deploying to it |
+| 50 subrequests per request on Free | a fill round fetches hundreds of pages | Crawling cannot run there at any plan |
+
+Cloudflare **Containers** was checked too and also rejected: all disk is
+ephemeral ("when a Container instance goes to sleep, the next time it is
+started, it will have a fresh disk"), snapshots are still "coming soon", and a
+1 GB instance running 24/7 costs roughly $24/mo ($5 base + ~$12.50 CPU + ~$6.25
+memory at published rates) — six times Hetzner for a box that forgets the index
+every time it sleeps.
+
+The one Cloudflare product that would make sense is Workers Static Assets for
+the `public/` frontend, with the API staying where the index lives. Marginal
+gain for added moving parts; not done.
