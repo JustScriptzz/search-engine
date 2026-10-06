@@ -6,10 +6,12 @@
 // was measured by dividing total heap by pair count, which folded the documents
 // and their text into the number; it overstated the win.)
 //
-// The pairs are dense integers and small floats. In two typed arrays they cost 8
-// bytes — Int32 for the document ordinal, Float32 for the frequency — which is
-// about 14x less, and on a live 19 KB document it is the difference between
-// ~67 KB and ~23 KB of RAM per document.
+// The pairs are dense integers and small floats. In two typed arrays the data
+// costs 8 bytes a pair — Int32 for the document ordinal, Float32 for the
+// frequency — against 116 bytes measured for the same pairs as nested Maps on
+// this engine (~14x). End to end, a 19 KB document costs ~45 KB of heap
+// (measured: 510 documents, 22.4 MB heap), most of the rest being the stored
+// text and the document objects themselves.
 //
 // Two properties make this straightforward rather than clever:
 //

@@ -12,7 +12,9 @@
 # The volume matters. Without one the index is lost on every restart, and a
 # search engine that forgets everything between requests is not a search engine.
 
-FROM oven/bun:1.4-alpine
+# Pinned to the exact runtime the app was developed and tested against
+# (verified tag on Docker Hub; base is ~40 MB, so the final image is ~60-80 MB).
+FROM oven/bun:1.4.2-alpine
 
 WORKDIR /app
 
@@ -32,7 +34,9 @@ ENV SERVER_INDEX_PATH=/data/index.json \
     AUTO_FILL=0 \
     NODE_ENV=production
 
-RUN mkdir -p /data && chown -R bun:bun /app /data
+# The oven/bun image does not document a non-root user, so create one if it is
+# missing rather than assuming it exists — a wrong USER breaks every start.
+RUN (id bun 2>/dev/null || adduser -D -h /app bun) && mkdir -p /data && chown -R bun:bun /app /data
 USER bun
 
 VOLUME ["/data"]
